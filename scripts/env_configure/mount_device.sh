@@ -6,7 +6,9 @@ if [[ ${device_root} != "/media/nvidia/record" ]]; then
         echo "没有检测到硬盘挂载" 
         exit 1
     else
-        sudo umount /dev/${mount_source}
+        if [ $(expr length "${device_root}") != 0  ]; then
+            sudo umount /dev/${mount_source}
+        fi
     fi
     echo "挂载硬盘 ${mount_source} to /media/nvidia/record/"
     sudo mount /dev/${mount_source} /media/nvidia/record

@@ -1,5 +1,6 @@
 #!/bin/bash
 set -e
+collect_case=$1
 echo_cam_config (){
     echo "摄像头初始化可能未完成"
     echo "请执行 bash /home/nvidia/scripts/env_configure/cam_configure.sh [配置方案]"
@@ -31,5 +32,7 @@ source ./prepare.sh
 if [ ! -d "/home/nvidia/tztek_data_collection/scripts/build" ]; then
     echo_build
 fi
-bash run.sh ${DEVICE_ROOT} ${module_name}
+output_dir=${DEVICE_ROOT}/${collect_case}/
+mkdir -p ${output_dir}
+bash run.sh ${output_dir} ${module_name}
 
