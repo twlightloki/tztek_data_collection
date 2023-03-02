@@ -5,9 +5,11 @@
 #include "cfg.h"
 #include <iostream>
 #include "camera_collect_worker.h"
-#include "libyuv.h"
 #include "NvLogging.h"
 #include "sensor_image.pb.h"
+#include "kernels.h"
+//#include "libyuv.h"
+#include <fstream>
 
 using namespace std::chrono;
 using namespace common;
@@ -52,6 +54,7 @@ bool CameraCollectWorker::Init() {
         buf->allocateMemory();
         free_bufs_.push(buf);
     }
+    cudaMallocHost((void**)&yuyv_buf_, width_ * height_ * 2);
     std::string enc_name = "jpegenc#" + std::to_string(channel_);
     jpegenc_.reset(NvJPEGEncoder::createJPEGEncoder(enc_name.c_str()));
 
@@ -61,6 +64,7 @@ bool CameraCollectWorker::Init() {
     init_ = true;
     INFO_MSG("WORKER" << channel_ << " Init completed");
     last_ = system_clock::now();
+    cudaStreamCreate(&stream_);
     return true;
 }
 
@@ -78,6 +82,9 @@ bool CameraCollectWorker::Release() {
     }
     if (jpeg_buf_) {
         delete jpeg_buf_;
+    }
+    if (yuyv_buf_) {
+        cudaFree(yuyv_buf_);
     }
     INFO_MSG("WORKER" << channel_ << " Released, image_count " << image_count_);
     return true;
@@ -104,12 +111,15 @@ bool CameraCollectWorker::Push(uint64_t measurement_time,unsigned char *data, in
         std::lock_guard<std::mutex> lock(buf_mutex_);
         CHECK(free_bufs_.size() > 0);
         NvBuffer* buf = free_bufs_.front();
-        libyuv::YUY2ToI420(data, 2 * width_,
-                buf->planes[0].data, width_,
-                buf->planes[1].data, width_ / 2,
-                buf->planes[2].data, width_ / 2,
-                width_,
-                height_);
+        memcpy(yuyv_buf_, data, width_ * height_ * 2);
+        YUYV2To420WithYCExtend(yuyv_buf_, buf->planes[0].data, buf->planes[1].data, buf->planes[2].data, width_, height_, stream_);
+        cudaStreamSynchronize(stream_);
+//        libyuv::YUY2ToI420(data, 2 * width_,
+//                buf->planes[0].data, width_,
+//                buf->planes[1].data, width_ / 2,
+//                buf->planes[2].data, width_ / 2,
+//                width_,
+//                height_);
         free_bufs_.pop();	
         free_bufs_count_ += free_bufs_.size();
         using_bufs_.emplace(buf);
@@ -127,7 +137,7 @@ bool CameraCollectWorker::Push(uint64_t measurement_time,unsigned char *data, in
             free_bufs_count_ = 0;
             last_ = end;
         }
-        //INFO_MSG("WORKER" << channel_ << " Push " << measurement_time << " end");
+//        INFO_MSG("WORKER" << channel_ << " Push " << measurement_time << " end ");
     }
 
     return true;
@@ -195,11 +205,11 @@ bool CameraCollectWorker::Consume() {
 //            CHECK(writer_->PushMessage(content, measurement_time));
 //            }
 
-#if (1)
-            //            std::string jpeg_name = std::to_string(channel_) + "_" + std::to_string(measurement_time / 1000000) + ".jpeg";
-            //            std::ofstream ouf(jpeg_name, std::ios::out | std::ios::binary);
-            //            ouf.write(reinterpret_cast<const char*>(jpeg_buf_), jpeg_size);
-            //            ouf.close();
+#if (0)
+                        std::string jpeg_name = std::to_string(channel_) + "_" + std::to_string(measurement_time / 1000000) + ".jpeg";
+                        std::ofstream ouf(jpeg_name, std::ios::out | std::ios::binary);
+                        ouf.write(reinterpret_cast<const char*>(jpeg_buf_), jpeg_size);
+                        ouf.close();
 #else
 #endif
             {
