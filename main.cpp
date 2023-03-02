@@ -53,6 +53,8 @@ int main(int argc, char** argv) {
     stuSyncPara.nVersion = CFG_get_section_value_int(strCfg.c_str(), "common", "version", 1);
     CFG_get_section_value(strCfg.c_str(), "common", "trigger_dev_name", stuSyncPara.szDevname, sizeof(stuSyncPara.szDevname));
     stuSyncPara.nReset = CFG_get_section_value_int(strCfg.c_str(), "common", "reset", 0);
+    int visual_port = CFG_get_section_value_int(strCfg.c_str(), "common", "port", 5556);
+    CFG_get_section_value(strCfg.c_str(), "common", "trigger_dev_name", stuSyncPara.szDevname, sizeof(stuSyncPara.szDevname));
     SYNCV4L2_Init(&stuSyncPara);
     SYNCV4L2_SetEventCallback(syncv4l2EventCallBack, nullptr);
 
@@ -61,7 +63,7 @@ int main(int argc, char** argv) {
 	const int MAX_CAMER_NUM = 8;
     std::string output_dir = argc > 3 ? argv[3] : "";
     uint64_t file_size = argc > 3 ? 2000 * kMBSize : 0;
-    std::shared_ptr<PBWriter> writer(new PBWriter(argv[2], output_dir, file_size , "5556"));
+    std::shared_ptr<PBWriter> writer(new PBWriter(argv[2], output_dir, file_size , visual_port > 0 ? std::to_string(visual_port) : ""));
     writer->Open();
     for (int i = 0; i < MAX_CAMER_NUM; i++)
     {
@@ -80,16 +82,16 @@ int main(int argc, char** argv) {
             continue;
         }
 
-        mapJpeg.at(chan)->Init();
-        mapJpeg.at(chan)->Open();
+        CHECK(mapJpeg.at(chan)->Init());
+        CHECK(mapJpeg.at(chan)->Open());
     }
-    std::unique_ptr<GNSSCollectWorker> gnss(new (std::nothrow)GNSSCollectWorker(42, 115200, writer));
-    gnss->Init();
-    gnss->Open();
+    std::unique_ptr<GNSSCollectWorker> gnss(new (std::nothrow)GNSSCollectWorker(42, 230400, writer));
+    CHECK(gnss->Init());
+    CHECK(gnss->Open());
 
     std::unique_ptr<LidarCollectWorker> lidar(new (std::nothrow)LidarCollectWorker("/rslidar_points", writer));
-    lidar->Init();
-    lidar->Open();
+    CHECK(lidar->Init());
+    CHECK(lidar->Open());
 
 
     SYNCV4L2_Start();
@@ -97,19 +99,19 @@ int main(int argc, char** argv) {
 
 	getchar();
 
-    lidar->Release();
+    CHECK(lidar->Release());
 
 
     //stop
     SYNCV4L2_Stop();
     for (auto& it : mapJpeg)
     {
-        it.second->Release();
+        CHECK(it.second->Release());
         it.second.reset();
     }
     SYNCV4L2_Release();
-    gnss->Release();
-    writer->Close();
+    CHECK(gnss->Release());
+    CHECK(writer->Close());
     CFG_free(strCfg.c_str());
  
     return 0;

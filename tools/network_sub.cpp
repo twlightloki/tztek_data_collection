@@ -24,6 +24,14 @@ template <> std::string Parse<drivers::CompressedImage>(const common::SingleMess
     return data.DebugString();
 }
 
+template <> std::string Parse<drivers::PointCloud>(const common::SingleMessage &message) {
+    drivers::PointCloud data;
+    data.ParseFromString(message.content());
+    data.clear_point();
+    return data.DebugString();
+}
+
+
 int main(int argc, char** argv) {
     zmq::context_t context(1);
     std::cout << zmq_strerror(zmq_errno()) << std::endl;
@@ -32,7 +40,7 @@ int main(int argc, char** argv) {
     socket.connect(std::string("tcp://localhost:") + argv[1]);
     std::cout << zmq_strerror(zmq_errno()) << std::endl;
     char filter[] = "byd66";
-    socket.set(zmq::sockopt::subscribe, filter);
+    socket.setsockopt(ZMQ_SUBSCRIBE, filter, 5);
     std::cout << zmq_strerror(zmq_errno()) << std::endl;
     std::string sensor_name = argv[2];
     while (true) {

@@ -141,7 +141,7 @@ bool CameraCollectWorker::Consume() {
     if (writer_->AvailVisual()) {
         std::string scaled_enc_name = enc_name + "_scaled";
         scaled_jpegenc.reset(NvJPEGEncoder::createJPEGEncoder(scaled_enc_name.c_str()));
-        scaled_jpegenc->setScaledEncodeParams(writer_->VisualWidth(), writer_->VisualHeight());
+ //       scaled_jpegenc->setScaledEncodeParams(writer_->VisualWidth(), writer_->VisualHeight());
     }
     size_t jpeg_buf_size = 10 * kMBSize;
     unsigned char *jpeg_buf = new unsigned char[jpeg_buf_size];
@@ -153,7 +153,10 @@ bool CameraCollectWorker::Consume() {
     uint64_t consume_time = 0;
     NvBuffer buf(V4L2_PIX_FMT_YUV420M, width_, height_, 0);
     buf.allocateMemory();
-   
+ 
+    NvBuffer scaled_buf(V4L2_PIX_FMT_YUV420M, writer_->VisualWidth(), writer_->VisualHeight(), 0);
+    scaled_buf.allocateMemory();
+    
     cudaStream_t stream; 
     cudaStreamCreate(&stream);
 
@@ -172,7 +175,16 @@ bool CameraCollectWorker::Consume() {
         }
         if (measurement_time > 0) {
             time_point<system_clock> start = system_clock::now();
-            YUYV2To420WithYCExtend(yuyv_buf, buf.planes[0].data, buf.planes[1].data, buf.planes[2].data, width_, height_, stream);
+            if (writer_->AvailDump()) {
+                YUYV2To420WithYCExtend(yuyv_buf, buf.planes[0].data, buf.planes[1].data, buf.planes[2].data, 
+                                       width_, height_, width_, height_, stream);
+            }
+
+            if (writer_->AvailVisual()) {
+                YUYV2To420WithYCExtend(yuyv_buf, scaled_buf.planes[0].data, scaled_buf.planes[1].data, scaled_buf.planes[2].data, 
+                                       writer_->VisualWidth(), writer_->VisualHeight(), width_, height_, stream);
+            }
+ 
             cudaStreamSynchronize(stream);
             {
                 std::lock_guard<std::mutex> lock(buf_mutex_);
@@ -181,7 +193,8 @@ bool CameraCollectWorker::Consume() {
 
             double measurement_time_sec = (double)measurement_time / 1e9;
 
-            auto EncodeToContent = [&](const std::unique_ptr<NvJPEGEncoder> &encoder, std::string& content,
+            auto EncodeToContent = [&](NvBuffer& buf,
+                                       const std::unique_ptr<NvJPEGEncoder> &encoder, std::string& content,
                                        const int quality) {
                 uint64_t jpeg_size = jpeg_buf_size;
                 int ret = encoder->encodeFromBuffer(buf, JCS_YCbCr, &jpeg_buf, jpeg_size, quality);
@@ -206,12 +219,12 @@ bool CameraCollectWorker::Consume() {
 
             if (writer_->AvailDump()) {
                 std::string content;
-                CHECK(EncodeToContent(jpegenc, content, jpeg_quality_));
+                CHECK(EncodeToContent(buf, jpegenc, content, jpeg_quality_));
                 CHECK(writer_->PushMessage(content, "camera", measurement_time_sec, PBWriter::ONLY_LOCAL));
             }
             if (writer_->AvailVisual()) {
                 std::string scaled_content;
-                CHECK(EncodeToContent(scaled_jpegenc, scaled_content, writer_->VisualQuality()));
+                CHECK(EncodeToContent(scaled_buf, scaled_jpegenc, scaled_content, writer_->VisualQuality()));
                 CHECK(writer_->PushMessage(scaled_content, "camera_visual", measurement_time_sec, PBWriter::ONLY_VISUAL));
             }
             image_count_ ++;

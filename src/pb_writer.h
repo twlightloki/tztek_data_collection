@@ -26,8 +26,8 @@ class PBWriter {
         bool AvailVisual() const { return zmq_socket_.get() != nullptr; };
         bool AvailDump() const { return file_size_ > 0; };
         //XXX adhoc
-        int VisualHeight() const { return 768; };
-        int VisualWidth() const {return 1024; };
+        int VisualHeight() const { return 540; };
+        int VisualWidth() const {return 960; };
         int VisualQuality() const {return 80; };
     private:
         bool Consume();
@@ -42,6 +42,7 @@ class PBWriter {
         std::string output_dir_;
         uint64_t file_size_;
         std::string visual_port_;
+        uint64_t visual_count_{0};
         std::atomic<bool> stopped_{false};
 
 

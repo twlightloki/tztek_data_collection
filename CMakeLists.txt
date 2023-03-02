@@ -53,3 +53,6 @@ TARGET_LINK_LIBRARIES(yuyv_2_jpeg data_collect_worker)
 
 ADD_EXECUTABLE(network_sub ${TOOL_DIR}/network_sub.cpp)
 TARGET_LINK_LIBRARIES(network_sub data_collect_worker)
+
+ADD_EXECUTABLE(network_pub ${TOOL_DIR}/network_pub.cpp)
+TARGET_LINK_LIBRARIES(network_pub data_collect_worker)

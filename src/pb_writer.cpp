@@ -20,6 +20,7 @@ PBWriter::~PBWriter() {};
 bool PBWriter::Open() {
     if (visual_port_ != "") {
       try {
+          INFO_MSG("visual port: " << visual_port_);
           //more io threads?
           zmq_context_.reset(new zmq::context_t(1));
           zmq_socket_.reset(new zmq::socket_t(*zmq_context_, zmq::socket_type::pub));
@@ -36,7 +37,7 @@ bool PBWriter::Open() {
 bool PBWriter::Close() {
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        if (chunk_->messages_size() > 0) {
+        if (chunk_.get() && chunk_->messages_size() > 0) {
             chunks_.push(chunk_);
             record_times_.push(record_time_);
         }
@@ -45,7 +46,7 @@ bool PBWriter::Close() {
     if (consumer_.get()) {
         consumer_->join();
     }
-    INFO_MSG("close consumer");
+    INFO_MSG("close consumer, visual_count: " << visual_count_);
     return true;
 };
 
@@ -82,7 +83,7 @@ bool PBWriter::PushMessage(const std::string &content, const std::string &sensor
                 double elapsed_time_sec = record_time_sec - record_time_;
                 INFO_MSG(std::endl << "flush_data from  [" << DateStr(record_time_) << "] -> [" << DateStr(record_time_sec) <<"], details:"  << 
                          std::endl << MessageCount(elapsed_time_sec) << 
-                         "avg push data flow(mb/s):     " << size_mb / elapsed_time_sec);
+                         "avg push data flow(mb/s):     " << size_mb / elapsed_time_sec << std::endl);
                 chunks_.push(chunk_);
                 record_times_.push(record_time_);
                 chunk_.reset();
@@ -93,6 +94,7 @@ bool PBWriter::PushMessage(const std::string &content, const std::string &sensor
             if (!chunk_.get()) {
                 chunk_.reset(new Chunk());
                 record_time_ = record_time_sec;
+                INFO_MSG("new file start from: " << sensor_name << " " << record_time_sec);
             }
 
             new_message = chunk_->add_messages();
@@ -119,6 +121,7 @@ bool PBWriter::PushMessage(const std::string &content, const std::string &sensor
             if (!need_dump) {
                 delete new_message;
             }
+            visual_count_ ++;
         }
     }
     return true;
