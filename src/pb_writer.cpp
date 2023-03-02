@@ -1,7 +1,6 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include "google/protobuf/text_format.h"
-#include "google/protobuf/io/zero_copy_stream_impl.h"
 #include "pb_writer.h"
 #include <fstream>
 
@@ -50,7 +49,7 @@ bool PBWriter::Close() {
     return true;
 };
 
-std::string PBWriter::MessageCount(double elapsed_time_sec) {
+std::string PBWriter::MessageCount(double elapsed_time_sec) const {
     std::ostringstream buf;
     for (const auto& entry : message_count_) {
         double count_per_second = double(entry.second) / elapsed_time_sec;
@@ -69,50 +68,59 @@ std::string DateStr(const double time_sec) {
     return rtn.substr(0, rtn.size() - 1);
 }
 
-bool PBWriter::PushMessage(const std::string &content, const std::string &sensor_name, const double record_time_sec) {
-    std::string message_content;
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (chunk_.get() && current_size_ > file_size_) {
-            float size_mb = current_size_ / kMBSize;
-            double elapsed_time_sec = record_time_sec - record_time_;
-            INFO_MSG(std::endl << "flush_data from  [" << DateStr(record_time_) << "] -> [" << DateStr(record_time_sec) <<"], details:"  << 
-                     std::endl << MessageCount(elapsed_time_sec) << 
-                     "avg push data flow(mb/s):     " << size_mb / elapsed_time_sec);
-            chunks_.push(chunk_);
-            record_times_.push(record_time_);
-            chunk_.reset();
-            message_count_.clear();
-            flow_count_.clear();
-            current_size_ = 0;
-        }
-        if (!chunk_.get()) {
-            chunk_.reset(new Chunk());
-            record_time_ = record_time_sec;
-        }
+bool PBWriter::PushMessage(const std::string &content, const std::string &sensor_name, const double record_time_sec,
+                           const PushType push_type) {
+    bool need_dump = push_type != ONLY_VISUAL && AvailDump();
+    bool need_visual = push_type != ONLY_LOCAL && AvailVisual();
+    if (need_dump || need_visual) {
+        std::string message_content;
+        SingleMessage *new_message = nullptr;
+        if (need_dump) {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (chunk_.get() && current_size_ > file_size_) {
+                float size_mb = current_size_ / kMBSize;
+                double elapsed_time_sec = record_time_sec - record_time_;
+                INFO_MSG(std::endl << "flush_data from  [" << DateStr(record_time_) << "] -> [" << DateStr(record_time_sec) <<"], details:"  << 
+                         std::endl << MessageCount(elapsed_time_sec) << 
+                         "avg push data flow(mb/s):     " << size_mb / elapsed_time_sec);
+                chunks_.push(chunk_);
+                record_times_.push(record_time_);
+                chunk_.reset();
+                message_count_.clear();
+                flow_count_.clear();
+                current_size_ = 0;
+            }
+            if (!chunk_.get()) {
+                chunk_.reset(new Chunk());
+                record_time_ = record_time_sec;
+            }
 
-        {
-            SingleMessage *new_message = chunk_->add_messages();
-            new_message->set_sensor_name(sensor_name);
-            new_message->set_time(record_time_sec);
-            new_message->set_content(content);
+            new_message = chunk_->add_messages();
             current_size_ += content.size();
             message_count_[sensor_name] ++;
             flow_count_[sensor_name] += content.size();
-            if (zmq_socket_.get()) {
-                new_message->SerializeToString(&message_content);
+        } else {
+            new_message = new SingleMessage();
+        }
+        
+        new_message->set_sensor_name(sensor_name);
+        new_message->set_time(record_time_sec);
+        new_message->set_content(content);
+
+        if (need_visual) {
+            new_message->SerializeToString(&message_content);
+            message_content = "byd66 " + message_content;
+            zmq::const_buffer buf(message_content.data(), message_content.size());
+            try {
+                zmq_socket_->send(buf);
+            } catch (const std::exception &e){
+                ERROR_MSG("zmq send message of " << sensor_name << " fail: " << e.what());
+            }
+            if (!need_dump) {
+                delete new_message;
             }
         }
     }
-    if (zmq_socket_.get()) {
-        message_content = "byd66 " + message_content;
-        zmq::const_buffer buf(message_content.data(), message_content.size());
-        try {
-            zmq_socket_->send(buf);
-        } catch (const std::exception &e){
-            ERROR_MSG("zmq send message of " << sensor_name << " fail: " << e.what());
-        }
-     }
     return true;
 }
 

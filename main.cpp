@@ -35,9 +35,9 @@ void syncv4l2EventCallBack(int nEvent, void *pHint1, void *pHint2, void *pUserDa
 }
 
 int main(int argc, char** argv) {
-    if (argc != 4)
+    if (argc < 3)
     {
-        printf("sudo %s  <cfgname> <module_name> <saving dir>\n", argv[0]);
+        printf("sudo %s  <cfgname> <module_name> [<saving dir>]\n", argv[0]);
         return -1;
     }
 
@@ -59,7 +59,9 @@ int main(int argc, char** argv) {
     //init camera chan
     std::map<int, std::unique_ptr<CameraCollectWorker>> mapJpeg;
 	const int MAX_CAMER_NUM = 8;
-    std::shared_ptr<PBWriter> writer(new PBWriter(argv[2], argv[3], (uint64_t)2000 * 1024 * 1024, "5556"));
+    std::string output_dir = argc > 3 ? argv[3] : "";
+    uint64_t file_size = argc > 3 ? 2000 * kMBSize : 0;
+    std::shared_ptr<PBWriter> writer(new PBWriter(argv[2], output_dir, file_size , "5556"));
     writer->Open();
     for (int i = 0; i < MAX_CAMER_NUM; i++)
     {

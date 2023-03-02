@@ -8,8 +8,8 @@
 #include "NvLogging.h"
 #include "sensor_image.pb.h"
 #include "kernels.h"
-//#include "libyuv.h"
 #include <fstream>
+#include "cuda_runtime.h"
 
 using namespace std::chrono;
 using namespace common;
@@ -54,16 +54,9 @@ bool CameraCollectWorker::Init() {
         cudaMallocHost((void**)&yuyv_buf, width_ * height_ * 2);
         free_bufs_.push(yuyv_buf);
     }
-    std::string enc_name = "jpegenc#" + std::to_string(channel_);
-    jpegenc_.reset(NvJPEGEncoder::createJPEGEncoder(enc_name.c_str()));
-
-    jpeg_buf_size_ = 10 * kMBSize;
-    jpeg_buf_ = new unsigned char[jpeg_buf_size_];
-
     init_ = true;
     INFO_MSG("WORKER" << channel_ << " Init completed");
     last_ = system_clock::now();
-    cudaStreamCreate(&stream_);
     return true;
 }
 
@@ -78,9 +71,6 @@ bool CameraCollectWorker::Release() {
     while (free_bufs_.size() > 0) {
         cudaFree(free_bufs_.front());
         free_bufs_.pop();
-    }
-    if (jpeg_buf_) {
-        delete jpeg_buf_;
     }
     INFO_MSG("WORKER" << channel_ << " Released, image_count " << image_count_);
     return true;
@@ -102,18 +92,18 @@ bool CameraCollectWorker::Push(uint64_t measurement_time, unsigned char *data, i
     CHECK(data != nullptr);
 
     {
-//        INFO_MSG("WORKER" << channel_ << " Push " << measurement_time);
+        //        INFO_MSG("WORKER" << channel_ << " Push " << measurement_time);
         time_point<system_clock> start = system_clock::now();
         std::lock_guard<std::mutex> lock(buf_mutex_);
         CHECK(free_bufs_.size() > 0);
         unsigned char* yuyv_buf = free_bufs_.front();
         memcpy(yuyv_buf, data, width_ * height_ * 2);
-//        libyuv::YUY2ToI420(data, 2 * width_,
-//                buf->planes[0].data, width_,
-//                buf->planes[1].data, width_ / 2,
-//                buf->planes[2].data, width_ / 2,
-//                width_,
-//                height_);
+        //        libyuv::YUY2ToI420(data, 2 * width_,
+        //                buf->planes[0].data, width_,
+        //                buf->planes[1].data, width_ / 2,
+        //                buf->planes[2].data, width_ / 2,
+        //                width_,
+        //                height_);
         free_bufs_.pop();	
         free_bufs_count_ += free_bufs_.size();
         using_bufs_.emplace(yuyv_buf);
@@ -127,14 +117,14 @@ bool CameraCollectWorker::Push(uint64_t measurement_time, unsigned char *data, i
             double fps = double(buffer_len_) / clip.count();
             if (fps < camera_params_.nTriggerFps * 0.95) {
                 WARN_MSG("WORKER#" << channel_ << ": fps: " << fps << 
-                         " avg push time: " << push_time_ / push_count_ << "ms, avg free bufs: " << free_bufs_count_ / push_count_);
+                        " avg push time: " << push_time_ / push_count_ << "ms, avg free bufs: " << free_bufs_count_ / push_count_);
             }
             push_count_ = 0;
             push_time_ = 0;
             free_bufs_count_ = 0;
             last_ = end;
         }
-//        INFO_MSG("WORKER" << channel_ << " Push " << measurement_time << " end ");
+        //        INFO_MSG("WORKER" << channel_ << " Push " << measurement_time << " end ");
     }
 
     return true;
@@ -143,11 +133,29 @@ bool CameraCollectWorker::Push(uint64_t measurement_time, unsigned char *data, i
 bool CameraCollectWorker::Consume() {
     INFO_MSG("WORKER" << channel_ << " Consumer start");
     CHECK(init_);
+    std::unique_ptr<NvJPEGEncoder> jpegenc;
+    std::unique_ptr<NvJPEGEncoder> scaled_jpegenc;
+
+    std::string enc_name = "jpegenc#" + std::to_string(channel_);
+    jpegenc.reset(NvJPEGEncoder::createJPEGEncoder(enc_name.c_str()));
+    if (writer_->AvailVisual()) {
+        std::string scaled_enc_name = enc_name + "_scaled";
+        scaled_jpegenc.reset(NvJPEGEncoder::createJPEGEncoder(scaled_enc_name.c_str()));
+        scaled_jpegenc->setScaledEncodeParams(writer_->VisualWidth(), writer_->VisualHeight());
+    }
+    size_t jpeg_buf_size = 10 * kMBSize;
+    unsigned char *jpeg_buf = new unsigned char[jpeg_buf_size];
+
+
     int buf_used_count = 0;
     int consume_count = 0;
+    double encode_ratio = 0;
     uint64_t consume_time = 0;
     NvBuffer buf(V4L2_PIX_FMT_YUV420M, width_, height_, 0);
     buf.allocateMemory();
+   
+    cudaStream_t stream; 
+    cudaStreamCreate(&stream);
 
     while (true) {
         unsigned char *yuyv_buf = nullptr;
@@ -164,63 +172,74 @@ bool CameraCollectWorker::Consume() {
         }
         if (measurement_time > 0) {
             time_point<system_clock> start = system_clock::now();
-            YUYV2To420WithYCExtend(yuyv_buf, buf.planes[0].data, buf.planes[1].data, buf.planes[2].data, width_, height_, stream_);
-            cudaStreamSynchronize(stream_);
-
-            unsigned long jpeg_size = jpeg_buf_size_;
-            int ret = jpegenc_->encodeFromBuffer(buf, JCS_YCbCr, &jpeg_buf_, jpeg_size, jpeg_quality_);
-            CHECK(ret == 0);
-            if (jpeg_size > jpeg_buf_size_) {
-                jpeg_buf_size_ = jpeg_size;
-            }
-            time_point<system_clock> end = system_clock::now();
-            duration<float> elapsed = end - start;
-            consume_time += elapsed.count() * 1000;
-            encode_ratio_ += (double)jpeg_size / (width_ * height_ * 2);
-            consume_count += 1;
-            double measurement_time_sec = (double)measurement_time / 1e9;
-            //INFO_MSG("WORKER" << channel_ << " process frame from " << measurement_time_sec);
-            double avg_consume_time = consume_time / consume_count;
-            if (consume_count % buffer_len_ == 0) {
-                if (1.0 / avg_consume_time < camera_params_.nTriggerFps) {
-                    WARN_MSG(measurement_time / 1000000 <<" WORKER#" <<  channel_ << " avg consume time: " << consume_time / consume_count << "ms, buf_used: " << buf_used_count / consume_count << 
-                            " encode_ratio = " << encode_ratio_ / consume_count);
-                }
-                consume_count = 0;
-                consume_time = 0;
-                buf_used_count = 0;
-                encode_ratio_ = 0;
-            }
-
-            CompressedImage image;
-            image.mutable_header()->set_timestamp_sec(measurement_time_sec);
-            image.mutable_header()->set_module_name(writer_->ModuleName());
-            image.mutable_header()->set_sequence_num(image_count_++);
-            image.mutable_header()->set_camera_timestamp(measurement_time);
-
-            image.set_frame_id(camera_params_.szDevName);
-            image.set_format("jpeg");
-            image.set_data((void*)jpeg_buf_, jpeg_size); 
-            image.set_measurement_time(measurement_time_sec);
-            std::string content;
-            image.SerializeToString(&content);
-            CHECK(writer_->PushMessage(content, "camera", measurement_time_sec));
-//            if (width_ == 1920) {
-//            CHECK(writer_->PushMessage(content, measurement_time));
-//            CHECK(writer_->PushMessage(content, measurement_time));
-//            }
-
-#if (0)
-                        std::string jpeg_name = std::to_string(channel_) + "_" + std::to_string(measurement_time / 1000000) + ".jpeg";
-                        std::ofstream ouf(jpeg_name, std::ios::out | std::ios::binary);
-                        ouf.write(reinterpret_cast<const char*>(jpeg_buf_), jpeg_size);
-                        ouf.close();
-#else
-#endif
+            YUYV2To420WithYCExtend(yuyv_buf, buf.planes[0].data, buf.planes[1].data, buf.planes[2].data, width_, height_, stream);
+            cudaStreamSynchronize(stream);
             {
                 std::lock_guard<std::mutex> lock(buf_mutex_);
                 free_bufs_.push(yuyv_buf);
             }
+
+            double measurement_time_sec = (double)measurement_time / 1e9;
+
+            auto EncodeToContent = [&](const std::unique_ptr<NvJPEGEncoder> &encoder, std::string& content,
+                                       const int quality) {
+                uint64_t jpeg_size = jpeg_buf_size;
+                int ret = encoder->encodeFromBuffer(buf, JCS_YCbCr, &jpeg_buf, jpeg_size, quality);
+                CHECK(ret == 0);
+                if (jpeg_size > jpeg_buf_size) {
+                    jpeg_buf_size = jpeg_size;
+                }
+                CompressedImage image;
+                image.mutable_header()->set_timestamp_sec(measurement_time_sec);
+                image.mutable_header()->set_module_name(writer_->ModuleName());
+                image.mutable_header()->set_sequence_num(image_count_);
+                image.mutable_header()->set_camera_timestamp(measurement_time);
+
+                image.set_frame_id(camera_params_.szDevName);
+                image.set_format("jpeg");
+                image.set_data((void*)jpeg_buf, jpeg_size); 
+                image.set_measurement_time(measurement_time_sec);
+                image.SerializeToString(&content);
+                encode_ratio += (double)jpeg_size / (width_ * height_ * 2) / 2;
+                return true;
+            };
+
+            if (writer_->AvailDump()) {
+                std::string content;
+                CHECK(EncodeToContent(jpegenc, content, jpeg_quality_));
+                CHECK(writer_->PushMessage(content, "camera", measurement_time_sec, PBWriter::ONLY_LOCAL));
+            }
+            if (writer_->AvailVisual()) {
+                std::string scaled_content;
+                CHECK(EncodeToContent(scaled_jpegenc, scaled_content, writer_->VisualQuality()));
+                CHECK(writer_->PushMessage(scaled_content, "camera_visual", measurement_time_sec, PBWriter::ONLY_VISUAL));
+            }
+            image_count_ ++;
+
+#if (0)
+            std::string jpeg_name = std::to_string(channel_) + "_" + std::to_string(measurement_time / 1000000) + ".jpeg";
+            std::ofstream ouf(jpeg_name, std::ios::out | std::ios::binary);
+            ouf.write(reinterpret_cast<const char*>(jpeg_buf), jpeg_size);
+            ouf.close();
+#else
+#endif
+            time_point<system_clock> end = system_clock::now();
+            duration<float> elapsed = end - start;
+            consume_time += elapsed.count() * 1000;
+            consume_count += 1;
+            double avg_consume_time = consume_time / consume_count;
+            if (consume_count % buffer_len_ == 0) {
+                if (1000.0 / avg_consume_time < camera_params_.nTriggerFps) {
+                    WARN_MSG(measurement_time / 1000000 <<" WORKER#" <<  channel_ << " avg consume time: " << consume_time / consume_count << "ms, buf_used: " << buf_used_count / consume_count << 
+                            " encode_ratio = " << encode_ratio / consume_count);
+                }
+                consume_count = 0;
+                consume_time = 0;
+                buf_used_count = 0;
+                encode_ratio = 0;
+            }
+
+
         } else {
             usleep(1000);
         }
@@ -231,6 +250,7 @@ bool CameraCollectWorker::Consume() {
             }
         }
     }
+    delete jpeg_buf;
     return true;
 }
 

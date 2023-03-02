@@ -78,7 +78,7 @@ extern int log_level;
 /**
  * Specifies the default log level.
  */
-#define DEFAULT_LOG_LEVEL LOG_LEVEL_ERROR
+#define DEFAULT_LOG_LEVEL LOG_LEVEL_WARN
 
 /**
  * @cond

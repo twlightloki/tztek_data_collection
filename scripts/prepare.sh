@@ -1,8 +1,13 @@
 set -e
-device_root=$(lsblk | grep sda1 | rev | cut -d " " -f1 | rev)
+device_root=$(lsblk -l -o NAME,MOUNTPOINT | grep -e sda1 -e sdb1 -e sdc1 | head -n 1| rev | cut -d " " -f1 | rev)
+mount_source=$(lsblk -l -o NAME | grep -e sda1 -e sdb1 -e sdc1 | head -n 1)
+if [ $(expr length "${mount_source}") == 0  ]; then
+    echo "no device found" 
+    exit
+fi
 if [ $(expr length "${device_root}") == 0  ]; then
-    echo "mount device to /media/nvidia/record/"
-    sudo mount /dev/sda1 /media/nvidia/record
+    echo "mount ${mount_source} to /media/nvidia/record/"
+    sudo mount /dev/${mount_source} /media/nvidia/record
 else
     echo "already device mounted: ${device_root}"
 fi

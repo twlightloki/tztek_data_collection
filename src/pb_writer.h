@@ -14,11 +14,24 @@ class PBWriter {
 
         bool Open();
         bool Close();
-        bool PushMessage(const std::string &content, const std::string &sensor_name, const double record_time_sec);
+
+        enum PushType {
+            ONLY_LOCAL,
+            BOTH,
+            ONLY_VISUAL};
+
+        bool PushMessage(const std::string &content, const std::string &sensor_name, const double record_time_sec,
+                         const PushType push_type = BOTH);
         std::string& ModuleName() {return module_name_;};
+        bool AvailVisual() const { return zmq_socket_.get() != nullptr; };
+        bool AvailDump() const { return file_size_ > 0; };
+        //XXX adhoc
+        int VisualHeight() const { return 768; };
+        int VisualWidth() const {return 1024; };
+        int VisualQuality() const {return 80; };
     private:
         bool Consume();
-        std::string MessageCount(double elapsed_time_sec);
+        std::string MessageCount(double elapsed_time_sec) const;
 
         std::queue<std::shared_ptr<common::Chunk>> chunks_;
         std::queue<uint64_t> record_times_;

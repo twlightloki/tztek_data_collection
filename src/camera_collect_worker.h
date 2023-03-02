@@ -4,7 +4,6 @@
 #include "pb_writer.h"
 #include "common.h"
 #include <chrono>
-#include "cuda_runtime.h"
 
 
 
@@ -39,15 +38,10 @@ class CameraCollectWorker {
         std::mutex buf_mutex_;
         int image_count_{0};
         std::chrono::time_point<std::chrono::system_clock> last_;
-        unsigned char *jpeg_buf_{nullptr};
-        unsigned long jpeg_buf_size_{0};
-        std::unique_ptr<NvJPEGEncoder> jpegenc_;
 
         int push_count_{0};
         int free_bufs_count_{0};
         uint64_t push_time_{0};
-        float encode_ratio_{0};
-        cudaStream_t stream_;
 
         std::shared_ptr<PBWriter> writer_;
 };
