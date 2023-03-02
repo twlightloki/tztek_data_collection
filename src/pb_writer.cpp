@@ -114,6 +114,7 @@ bool PBWriter::PushMessage(const std::string &content, const std::string &sensor
             message_content = "byd66 " + message_content;
             zmq::const_buffer buf(message_content.data(), message_content.size());
             try {
+                std::lock_guard<std::mutex> lock(zmq_mutex_);
                 zmq_socket_->send(buf);
             } catch (const std::exception &e){
                 ERROR_MSG("zmq send message of " << sensor_name << " fail: " << e.what());

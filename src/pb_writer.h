@@ -26,7 +26,6 @@ class PBWriter {
         bool AvailVisual() const { return zmq_socket_.get() != nullptr; };
         bool AvailDump() const { return file_size_ > 0; };
         //XXX adhoc
-        int VisualHeight() const { return 540; };
         int VisualWidth() const {return 960; };
         int VisualQuality() const {return 80; };
         int VisualStep() const {return 2; };
@@ -39,6 +38,7 @@ class PBWriter {
         std::shared_ptr<common::Chunk> chunk_;
         std::unique_ptr<std::thread> consumer_;
         std::mutex mutex_;
+        std::mutex zmq_mutex_;
         std::string module_name_;
         std::string output_dir_;
         uint64_t file_size_;

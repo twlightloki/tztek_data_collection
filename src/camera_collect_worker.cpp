@@ -170,7 +170,10 @@ bool CameraCollectWorker::Consume() {
     NvBuffer buf(V4L2_PIX_FMT_YUV420M, width_, height_, 0);
     buf.allocateMemory();
  
-    NvBuffer scaled_buf(V4L2_PIX_FMT_YUV420M, writer_->VisualWidth(), writer_->VisualHeight(), 0);
+    int visual_width = writer_->VisualWidth();
+    int visual_height = int(double(height_) / width_ * visual_width) / 4 * 4;
+
+    NvBuffer scaled_buf(V4L2_PIX_FMT_YUV420M, visual_width, visual_height, 0);
     scaled_buf.allocateMemory();
     
     cudaStream_t stream; 
@@ -208,7 +211,7 @@ bool CameraCollectWorker::Consume() {
             if (writer_->AvailVisual() && image_count_ % writer_->VisualStep() == 0) {
                 SimpleTimeCounter _(&visual_resize);
                 YUYV2To420WithYCExtend(yuyv_buf, scaled_buf.planes[0].data, scaled_buf.planes[1].data, scaled_buf.planes[2].data, 
-                                       writer_->VisualWidth(), writer_->VisualHeight(), width_, height_, stream);
+                                       visual_width, visual_height, width_, height_, stream);
                 cudaStreamSynchronize(stream);
              }
  
