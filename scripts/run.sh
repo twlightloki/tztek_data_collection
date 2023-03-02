@@ -1,5 +1,5 @@
 #!/bin/bash
-set -ex
+set -e
 target_dir=$1
 module_name=$2
 if [ $(expr length "${module_name}") == 0  ]; then
