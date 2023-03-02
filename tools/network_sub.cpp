@@ -57,7 +57,7 @@ int main(int argc, char** argv) {
             } else if (sensor_name == "lidar") {
                 debug_str = Parse<drivers::PointCloud>(message);
             }
-            std::cout << "\x1B[2J\x1B[H" << "message size: " << request.size() << std::endl << debug_str << std::endl;
+            std::cout << "\x1B[2J\x1B[H" << "message size: " << *rtn << " " << request.size() << std::endl << debug_str << std::endl;
         }    
     }
 

@@ -1,10 +1,4 @@
-//#include "cuda_runtime_api.h"
-//#include "opencv2/opencv.hpp"
-//#include <fstream>
 #include <iostream>
-//#include <chrono>
-//#include "nvjpeg.h"
-//#include "kernels.h"
 #include "camera_collect_worker.h"
 #include "gnss_collect_worker.h"
 #include "lidar_collect_worker.h"
@@ -53,7 +47,8 @@ int main(int argc, char** argv) {
     stuSyncPara.nVersion = CFG_get_section_value_int(strCfg.c_str(), "common", "version", 1);
     CFG_get_section_value(strCfg.c_str(), "common", "trigger_dev_name", stuSyncPara.szDevname, sizeof(stuSyncPara.szDevname));
     stuSyncPara.nReset = CFG_get_section_value_int(strCfg.c_str(), "common", "reset", 0);
-    int visual_port = CFG_get_section_value_int(strCfg.c_str(), "common", "port", 5556);
+    int visual_port = CFG_get_section_value_int(strCfg.c_str(), "common", "visuL_port", 5556);
+    int control_port = CFG_get_section_value_int(strCfg.c_str(), "common", "control_port", 5557);
     uint64_t file_size = CFG_get_section_value_int(strCfg.c_str(), "common", "file_size", 2000 * kMBSize);
     CFG_get_section_value(strCfg.c_str(), "common", "trigger_dev_name", stuSyncPara.szDevname, sizeof(stuSyncPara.szDevname));
     SYNCV4L2_Init(&stuSyncPara);
@@ -63,7 +58,7 @@ int main(int argc, char** argv) {
     std::map<int, std::unique_ptr<CameraCollectWorker>> mapJpeg;
 	const int MAX_CAMER_NUM = 8;
     std::string output_dir = argc > 3 ? argv[3] : "";
-    std::shared_ptr<DataWriter> writer(new DataWriter(argv[2]));
+    std::shared_ptr<DataWriter> writer(new DataWriter(argv[2], file_size, std::to_string(visual_port)));
     for (int i = 0; i < MAX_CAMER_NUM; i++)
     {
         int chan = i;
@@ -84,10 +79,6 @@ int main(int argc, char** argv) {
         CHECK(mapJpeg.at(chan)->Init());
         CHECK(mapJpeg.at(chan)->Open());
     }
-    CHECK(writer->OpenVisualize(std::to_string(visual_port)));
-    if (output_dir != "") {
-        CHECK(writer->OpenDump(output_dir, file_size));
-    }
     std::unique_ptr<GNSSCollectWorker> gnss(new (std::nothrow)GNSSCollectWorker(42, 230400, writer));
     CHECK(gnss->Init());
     CHECK(gnss->Open());
@@ -96,11 +87,18 @@ int main(int argc, char** argv) {
     CHECK(lidar->Init());
     CHECK(lidar->Open());
 
+    CHECK(writer->OpenVisualize());
+    if (output_dir != "") {
+        CHECK(writer->OpenDump(output_dir));
+    }
 
+ 
     SYNCV4L2_Start();
+    std::unique_ptr<NetworkController> controller(new (std::nothrow)NetworkController(std::to_string(control_port), writer));
+    controller->Spin();
 	
 
-	getchar();
+//	getchar();
 
     CHECK(lidar->Release());
 
@@ -112,12 +110,11 @@ int main(int argc, char** argv) {
         CHECK(it.second->Release());
         it.second.reset();
     }
-    CHECK(writer->CloseVisualize());
-    if (output_dir != "") {
-        CHECK(writer->CloseDump());
-    }
     SYNCV4L2_Release();
     CHECK(gnss->Release());
+    if (writer->AvailDump()) {
+        CHECK(writer->CloseDump());
+    }
     CFG_free(strCfg.c_str());
  
     return 0;

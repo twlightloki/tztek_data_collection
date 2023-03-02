@@ -3,19 +3,16 @@
 #include "message.pb.h"
 #include "zmq.hpp"
 
-class NetworkController {
-};
-
 class DataWriter {
     public:
-        DataWriter(const std::string &module_name);
+        DataWriter(const std::string &module_name, const uint64_t file_size, const std::string& visual_port);
         ~DataWriter();
 
 
-        bool OpenDump(const std::string &output_dir = "./",  const uint64_t file_size =  1024 * kMBSize);
+        bool OpenDump(const std::string &output_dir = "./");
         bool CloseDump();
 
-        bool OpenVisualize(const std::string &visual_port);
+        bool OpenVisualize();
         bool CloseVisualize();
 
 
@@ -47,6 +44,7 @@ class DataWriter {
         std::string module_name_;
         std::string output_dir_;
         uint64_t file_size_{0};
+        std::string visual_port_;
 
 
         uint64_t current_size_{0};
@@ -59,3 +57,17 @@ class DataWriter {
         std::atomic<bool> dump_opened_{false};
         std::atomic<bool> visualize_opened_{false};
 };
+
+class NetworkController {
+    public:
+        NetworkController(const std::string &port, 
+                          const std::shared_ptr<DataWriter> &writer);
+
+        void Spin();
+
+    private:
+        std::string port_;
+        std::shared_ptr<DataWriter> writer_;
+ };
+
+

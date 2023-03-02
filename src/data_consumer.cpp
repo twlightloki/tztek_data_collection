@@ -6,33 +6,86 @@
 
 using namespace common;
 using namespace std::chrono;
+NetworkController::NetworkController(const std::string &port, 
+        const std::shared_ptr<DataWriter> &writer):
+    port_(port), writer_(writer) {
+    };
 
-DataWriter::DataWriter(const std::string &module_name):
-    module_name_(module_name) {
+void NetworkController::Spin() {
+    zmq::context_t context(1);
+    INFO_MSG("listening port: " << port_);
+
+    while (true) {
+       try {
+            zmq::message_t request;
+            zmq::recv_result_t rtn;
+            zmq::socket_t socket(context, zmq::socket_type::rep);
+            socket.bind(std::string("tcp://*:") + port_);
+            rtn = socket.recv(request);
+            auto reply = [&](const std::string &msg) {
+                zmq::const_buffer buf(msg.data(), msg.size());
+                socket.send(buf);
+            };
+            if (*rtn > 0) {
+                std::string msg = request.to_string();
+                INFO_MSG("RECV MSG:"  << msg);
+                bool writer_rtn = false;
+                if (msg.substr(0, 4) == "exit") {
+                    reply("exit succ");
+                    break;
+                } else if (msg.substr(0, 10) == "start dump") {
+                    writer_rtn = writer_->OpenDump(msg.substr(11, msg.size() - 11));
+                } else if (msg.substr(0, 9) == "stop dump") {
+                    writer_rtn = writer_->CloseDump();
+                } else if (msg.substr(0, 12) == "start visual") {
+                    writer_rtn = writer_->OpenVisualize();
+                } else if (msg.substr(0, 11) == "stop visual") {
+                    writer_rtn = writer_->CloseVisualize();
+                };
+                if (writer_rtn) {
+                    reply("exec succ");
+                } else {
+                    reply("exec fail");
+                }
+            }
+        } catch (const std::exception &e){
+//            ERROR_MSG("zmq listen fail: " << e.what());
+        }
+        usleep(100000);
+    }
+}
+
+
+DataWriter::DataWriter(const std::string &module_name, const uint64_t file_size, const std::string &visual_port):
+    module_name_(module_name), file_size_(file_size), visual_port_(visual_port) {
     };
 DataWriter::~DataWriter() {};
 
-bool DataWriter::OpenVisualize(const std::string &visual_port) {
+bool DataWriter::OpenVisualize() {
     std::lock_guard<std::shared_mutex> _(consumer_state_mutex_);
-    try {
-        INFO_MSG("visual port: " << visual_port);
-        //more io threads?
-        zmq_context_.reset(new zmq::context_t(1));
-        zmq_socket_.reset(new zmq::socket_t(*zmq_context_, zmq::socket_type::pub));
-        zmq_socket_->bind("tcp://*:" + visual_port);
-    } catch (const std::exception &e){
-        ERROR_MSG("zmq init fail: " << e.what());
-        return false;
+    CHECK(!visualize_opened_);
+    INFO_MSG("start visual");
+    if (!zmq_context_.get()) {
+        try {
+            INFO_MSG("visual port: " << visual_port_);
+            //more io threads?
+            zmq_context_.reset(new zmq::context_t(1));
+            zmq_socket_.reset(new zmq::socket_t(*zmq_context_, zmq::socket_type::pub));
+            zmq_socket_->bind("tcp://*:" + visual_port_);
+        } catch (const std::exception &e){
+            ERROR_MSG("zmq init fail: " << e.what());
+            return false;
+        }
     }
     visualize_opened_ = true;
     return true;
 };
 
-bool DataWriter::OpenDump(const std::string &output_dir,  const uint64_t file_size) {
+bool DataWriter::OpenDump(const std::string &output_dir) {
     std::lock_guard<std::shared_mutex> _(consumer_state_mutex_);
+    CHECK(!dump_opened_);
     output_dir_ = output_dir;
     INFO_MSG("dump output dir: " << output_dir);
-    file_size_ = file_size;
     chunk_.reset();
     consumer_.reset(new std::thread([this](){DumpConsume();}));
     dump_opened_ = true;
@@ -73,7 +126,7 @@ std::string DataWriter::MessageCount(double elapsed_time_sec) const {
         double count_per_second = double(entry.second) / elapsed_time_sec;
         double flow_per_second = flow_count_.at(entry.first) / elapsed_time_sec / kMBSize;
         buf << std::setiosflags(std::ios::fixed) << std::setiosflags(std::ios::right) << std::setprecision(3) << "[" << entry.first << "]: " 
-        << count_per_second << "/s " << flow_per_second << "mb/s" << std::endl;
+            << count_per_second << "/s " << flow_per_second << "mb/s" << std::endl;
     }
     return buf.str();
 }
@@ -87,7 +140,7 @@ std::string DateStr(const double time_sec) {
 }
 
 bool DataWriter::PushMessage(const std::string &content, const std::string &sensor_name, const double record_time_sec,
-                           const PushType push_type) {
+        const PushType push_type) {
     std::shared_lock<std::shared_mutex> _(consumer_state_mutex_);
     bool need_dump = push_type != ONLY_VISUAL && AvailDump();
     bool need_visual = push_type != ONLY_LOCAL && AvailVisual();
@@ -100,8 +153,8 @@ bool DataWriter::PushMessage(const std::string &content, const std::string &sens
                 float size_mb = current_size_ / kMBSize;
                 double elapsed_time_sec = record_time_sec - record_time_;
                 INFO_MSG(std::endl << "flush_data from  [" << DateStr(record_time_) << "] -> [" << DateStr(record_time_sec) <<"], details:"  << 
-                         std::endl << MessageCount(elapsed_time_sec) << 
-                         "avg push data flow(mb/s):     " << size_mb / elapsed_time_sec << std::endl);
+                        std::endl << MessageCount(elapsed_time_sec) << 
+                        "avg push data flow(mb/s):     " << size_mb / elapsed_time_sec << std::endl);
                 chunks_.push(chunk_);
                 record_times_.push(record_time_);
                 chunk_.reset();
@@ -121,9 +174,9 @@ bool DataWriter::PushMessage(const std::string &content, const std::string &sens
         } else {
             new_message = new SingleMessage();
         }
-        
+
         new_message->set_sensor_name(sensor_name);
-        new_message->set_time(record_time_sec);
+        new_message->set_time(record_time_sec * 1e3);
         new_message->set_content(content);
 
         if (need_visual) {
@@ -176,8 +229,8 @@ bool DataWriter::DumpConsume() {
             float disk_flow = (float)file_size_ / kMBSize / last_chunk_elapsed.count();
             ouf.close();
             INFO_MSG(std::endl << "flush file " << current_file_name << "; writing disk speed(mb/s): " << 
-                     disk_speed << ", avg consume data flow(mb/s): " << disk_flow << std::endl <<
-                     "waiting chunks: " << waiting_chunks << std::endl);
+                    disk_speed << ", avg consume data flow(mb/s): " << disk_flow << std::endl <<
+                    "waiting chunks: " << waiting_chunks << std::endl);
         } else {
             usleep(1000);
         }

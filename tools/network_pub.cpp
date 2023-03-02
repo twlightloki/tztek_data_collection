@@ -5,20 +5,16 @@
 #include <unistd.h>
 
 int main(int argc, char** argv) {
+    std::string port = argv[1];
+    std::string msg = argv[2];
     zmq::context_t context(1);
-    std::cout << zmq_strerror(zmq_errno()) << std::endl;
-    zmq::socket_t socket(context, zmq::socket_type::pub);
-    std::cout << zmq_strerror(zmq_errno()) << std::endl;
-    socket.bind("tcp://*:5556");
-    std::cout << zmq_strerror(zmq_errno()) << std::endl;
-    while (true) {
-        std::string msg = "byd66 hello world";
-        zmq::message_t message(msg.size());
-        memcpy(message.data(), msg.data(), msg.size());
-        socket.send(message, zmq::send_flags::dontwait);
-        usleep(100000);
-    }
-
-
+    zmq::socket_t socket(context, zmq::socket_type::req);
+    socket.connect(std::string("tcp://localhost:") + port);
+    zmq::const_buffer buf(msg.data(), msg.size());
+    socket.send(buf);
+    std::cout << "send msg: " << msg << std::endl;
+    zmq::message_t request;
+    zmq::recv_result_t rtn = socket.recv(request);
+    std::cout << "recv[" << *rtn << "]: " << request.to_string() << std::endl;
     return 0;
 }
