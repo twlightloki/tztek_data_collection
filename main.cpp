@@ -7,6 +7,7 @@
 //#include "kernels.h"
 #include "camera_collect_worker.h"
 #include "gnss_collect_worker.h"
+#include "lidar_collect_worker.h"
 #include <map>
 #include <stdio.h>
 #include <string.h>
@@ -84,9 +85,18 @@ int main(int argc, char** argv) {
     gnss->Init();
     gnss->Open();
 
+    std::unique_ptr<LidarCollectWorker> lidar(new (std::nothrow)LidarCollectWorker("/rslidar_points", writer));
+    lidar->Init();
+    lidar->Open();
+
+
     SYNCV4L2_Start();
 	
+
 	getchar();
+
+    lidar->Release();
+
 
     //stop
     SYNCV4L2_Stop();

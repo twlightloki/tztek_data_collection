@@ -77,7 +77,6 @@ bool GNSSCollectWorker::Work() {
                         gnss_raw.mutable_header()->set_timestamp_sec((double)measurement_time / 1000000);
                         gnss_raw.mutable_header()->set_module_name(writer_->ModuleName());
                         gnss_raw.mutable_header()->set_sequence_num(gps_count_++);
-                        gnss_raw.mutable_header()->set_camera_timestamp(measurement_time);
                         gnss_raw.set_data(nema_raw_data);
                         gnss_raw.SerializeToString(&content);
                         CHECK(writer_->PushMessage(content, "gnss", measurement_time));
@@ -91,7 +90,6 @@ bool GNSSCollectWorker::Work() {
                     imu_data.mutable_header()->set_timestamp_sec((double)measurement_time / 1000000);
                     imu_data.mutable_header()->set_module_name(writer_->ModuleName());
                     imu_data.mutable_header()->set_sequence_num(imu_count_++);
-                    imu_data.mutable_header()->set_camera_timestamp(measurement_time);
                     imu_data.set_measurement_time((double)measurement_time / 1000000);
                     unsigned char *p_imu = buf.data() + idx + 28;
                     imu_data.mutable_linear_acceleration()->set_x(*(reinterpret_cast<long*>(p_imu + 24)));

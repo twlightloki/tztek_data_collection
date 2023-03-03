@@ -3,13 +3,20 @@ PROJECT(data_collect)
 
 FIND_PACKAGE(CUDA REQUIRED)
 FIND_PACKAGE(Protobuf REQUIRED)
-
+find_package(PCL REQUIRED)
+find_package(roscpp REQUIRED)
+find_package(catkin REQUIRED COMPONENTS
+   roscpp
+   rospy
+   std_msgs
+   message_generation
+)
 ENABLE_LANGUAGE(CUDA)
 
 
 INCLUDE_DIRECTORIES(${CUDA_INCLUDE_DIRS})
 SET(CUDA_SEPARABLE_COMPILATION ON)
-SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -g -std=c++11 -Wall")
+SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -g -std=c++14 -Wall")
 SET(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -arch=compute_87 -code=sm_87")
 LINK_DIRECTORIES(${CUDA_TOOLKIT_ROOT_DIR}/lib64)
 LINK_DIRECTORIES(/usr/lib/aarch64-linux-gnu/tegra/)
@@ -30,6 +37,10 @@ FILE(GLOB PROTO_FILE ${PROTO_DIR}/*.proto)
 PROTOBUF_GENERATE_CPP(PROTO_C PROTO_H ${PROTO_FILE})
 INCLUDE_DIRECTORIES(${CMAKE_CURRENT_BINARY_DIR})
 
+INCLUDE_DIRECTORIES(${PCL_INCLUDE_DIRS})
+LINK_DIRECTORIES(${PCL_LIBRARY_DIRS})
+INCLUDE_DIRECTORIES(/opt/ros/noetic/include/)
+LINK_DIRECTORIES(/opt/ros/noetic/lib/)
 
 SET(JETSON_CLASS_DIR ${JETSON_ROOT_DIR}/samples/common/classes)
 SET(JETSON_CLASS_SRC ${JETSON_CLASS_DIR}/NvLogging.cpp
@@ -37,9 +48,10 @@ SET(JETSON_CLASS_SRC ${JETSON_CLASS_DIR}/NvLogging.cpp
                      ${JETSON_CLASS_DIR}/NvJpegEncoder.cpp
                      ${JETSON_CLASS_DIR}/NvElement.cpp
                      ${JETSON_CLASS_DIR}/NvElementProfiler.cpp)
+
 FILE(GLOB SRC ${SRC_DIR}/*.cpp ${SRC_DIR}/*.c)
 
 ADD_LIBRARY(data_collect_worker SHARED ${SRC} ${PROTO_C} ${JETSON_CLASS_SRC})
 ADD_EXECUTABLE(data_collect main.cpp)
-TARGET_LINK_LIBRARIES(data_collect  data_collect_worker syncv4l2 yuv nvjpeg protobuf)
+TARGET_LINK_LIBRARIES(data_collect  data_collect_worker syncv4l2 yuv nvjpeg protobuf ${catkin_LIBRARIES} ${PCL_LIBRARIES})
 
