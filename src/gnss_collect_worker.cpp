@@ -57,16 +57,21 @@ double RawImuGyro(double raw) {
     return raw / 160849.543863 * 100;
 }
 
+double GPStoUTC(int gps_week, double gps_sec) {
+    double weeks = gps_week * 604800 + 315936000;
+    return gps_sec + weeks - 18;
+}
+
 bool GNSSCollectWorker::Work() {
     INFO_MSG("GNSS worker start");
     CHECK(init_);
     std::string buf;
     buf.resize(buf_size_);
+    //std::ofstream ouf("gnss.txt");
     while (!stopped_) {
         int n = RS232_PollComport(port_, (unsigned char*)(buf.data()), buf_size_);
         if (n > 0) {
-            auto ms = duration_cast<nanoseconds>(system_clock::now().time_since_epoch());
-            double measurement_time = ms.count() / 1e9;
+            //auto ms = duration_cast<nanoseconds>(system_clock::now().time_since_epoch());
             int skipped_bytes = 0;
 
             buf[n]='\0';
@@ -107,14 +112,14 @@ bool GNSSCollectWorker::Work() {
                     if (buf[idx2] == '*' && nema_checksum && gt_checksum == checksum && split_result.size() == 24) {
                         idx = idx2 + 5;
 
+                        double measurement_time = -1;
                         //gnss
                         Gnss gnss_data;
-                        gnss_data.mutable_header()->set_timestamp_sec(measurement_time);
-                        gnss_data.mutable_header()->set_module_name(writer_->ModuleName());
-                        gnss_data.mutable_header()->set_sequence_num(gps_count_);
-                        gnss_data.set_measurement_time(measurement_time);
                         try {
-
+                           
+                            int32_t gps_week = std::stof(split_result[1]); 
+                            double gps_sec = std::stof(split_result[2]);
+                            measurement_time = GPStoUTC(gps_week, gps_sec);
                             gnss_data.mutable_orientation()->set_x(std::stof(split_result[3]));
                             gnss_data.mutable_orientation()->set_y(std::stof(split_result[4]));
                             gnss_data.mutable_orientation()->set_z(std::stof(split_result[5]));
@@ -139,14 +144,19 @@ bool GNSSCollectWorker::Work() {
                         } catch (...) {
                             ERROR_MSG("nema decode fail" << nema_raw_data);
                         }
+                        gnss_data.mutable_header()->set_timestamp_sec(measurement_time);
+                        gnss_data.mutable_header()->set_module_name(writer_->ModuleName());
+                        gnss_data.mutable_header()->set_sequence_num(gps_count_);
+                        gnss_data.set_measurement_time(measurement_time);
                         gnss_data.SerializeToString(&content);
-                        CHECK(writer_->PushMessage(content, "gnss", measurement_time));
+                        CHECK(writer_->PushMessage(content, "pose", measurement_time));
                         RawData gnss_raw;
                         gnss_raw.mutable_header()->set_timestamp_sec(measurement_time);
                         gnss_raw.mutable_header()->set_module_name(writer_->ModuleName());
                         gnss_raw.mutable_header()->set_sequence_num(gps_count_);
                         gnss_raw.set_data(nema_raw_data);
-                        INFO_MSG("nema: "  << uint64_t(measurement_time) << " " << nema_raw_data);
+                        INFO_MSG("nema: "  << uint64_t(measurement_time * 1000) << " " << nema_raw_data);
+                        //ouf << nema_raw_data << "\n";
                         gnss_raw.SerializeToString(&content);
                         CHECK(writer_->PushMessage(content, "gnss_raw", measurement_time));
 
@@ -158,11 +168,14 @@ bool GNSSCollectWorker::Work() {
                     }
                 } else if (idx + 73 <= n && buf[idx] == 0xAA && buf[idx + 1] == 0x44 && buf[idx + 2] == 0x12) {
                     Imu imu_data;
+                    const char *p_imu = buf.data() + idx + int(buf[idx + 3]);
+                    int32_t gps_week = reinterpret_cast<const int32_t*>(p_imu + 0)[0]; 
+                    double gps_sec = reinterpret_cast<const double*>(p_imu + 4)[0];
+                    double measurement_time = GPStoUTC(gps_week, gps_sec);
                     imu_data.mutable_header()->set_timestamp_sec(measurement_time);
                     imu_data.mutable_header()->set_module_name(writer_->ModuleName());
                     imu_data.mutable_header()->set_sequence_num(imu_count_);
                     imu_data.set_measurement_time(measurement_time);
-                    const char *p_imu = buf.data() + idx + int(buf[idx + 3]);
                     imu_data.mutable_linear_acceleration()->set_x(RawImuAccel(reinterpret_cast<const int32_t*>(p_imu + 24)[0]));
                     imu_data.mutable_linear_acceleration()->set_y(-RawImuAccel(reinterpret_cast<const int32_t*>(p_imu + 20)[0]));
                     imu_data.mutable_linear_acceleration()->set_z(RawImuAccel(reinterpret_cast<const int32_t*>(p_imu + 16)[0]));
@@ -170,8 +183,8 @@ bool GNSSCollectWorker::Work() {
                     imu_data.mutable_angular_velocity()->set_y(RawImuGyro(-reinterpret_cast<const int32_t*>(p_imu + 32)[0]));
                     imu_data.mutable_angular_velocity()->set_z(RawImuGyro(reinterpret_cast<const int32_t*>(p_imu + 28)[0]));
 
-                    if (imu_count_ % 100 == 0) {
-                        INFO_MSG("imu: " << uint64_t(measurement_time) << " : " << 
+                    if (imu_count_ % 123 == 0) {
+                        INFO_MSG("imu: " << uint64_t(measurement_time * 1000) << " : " << 
                         imu_data.linear_acceleration().x() << " " << imu_data.linear_acceleration().y() << " " << imu_data.linear_acceleration().z() << " : " << 
                         imu_data.angular_velocity().x() <<  " " << imu_data.angular_velocity().y() << " " << imu_data.angular_velocity().z());
                     }

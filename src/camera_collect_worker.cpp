@@ -167,8 +167,9 @@ bool CameraCollectWorker::Consume() {
             consume_time += elapsed.count() * 1000;
             encode_ratio_ += (double)jpeg_size / (width_ * height_ * 2);
             consume_count += 1;
+            double measurement_time_sec = (double)measurement_time / 1e9;
             if (consume_count % buffer_len_ == 0) {
-                INFO_MSG("WORKER#" << channel_ << " avg consume time: " << consume_time / consume_count << "ms, buf_used: " << buf_used_count / consume_count << 
+                INFO_MSG(measurement_time / 1000000 <<" WORKER#" <<  channel_ << " avg consume time: " << consume_time / consume_count << "ms, buf_used: " << buf_used_count / consume_count << 
                         " encode_ratio = " << encode_ratio_ / consume_count);
                 consume_count = 0;
                 consume_time = 0;
@@ -176,7 +177,6 @@ bool CameraCollectWorker::Consume() {
                 encode_ratio_ = 0;
             }
 
-            double measurement_time_sec = (double)measurement_time / 1e9;
             CompressedImage image;
             image.mutable_header()->set_timestamp_sec(measurement_time_sec);
             image.mutable_header()->set_module_name(writer_->ModuleName());
