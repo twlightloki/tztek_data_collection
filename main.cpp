@@ -70,7 +70,7 @@ int main(int argc, char** argv) {
             continue;
         }
 
-        mapJpeg[chan].reset(new (std::nothrow) CameraCollectWorker(argv[2], chan, strCfg, writer));
+        mapJpeg[chan].reset(new (std::nothrow) CameraCollectWorker(chan, strCfg, writer));
         if (mapJpeg.at(chan) == nullptr)
         {
             printf("new (std::nothrow)CameraCollectWorker failed,chan=%d\n", chan);
@@ -82,9 +82,8 @@ int main(int argc, char** argv) {
     }
     std::unique_ptr<GNSSCollectWorker> gnss(new (std::nothrow)GNSSCollectWorker(42, 115200, writer));
     gnss->Init();
-    //gnss->Open();
+    gnss->Open();
 
-    //start
     SYNCV4L2_Start();
 	
 	getchar();
@@ -97,7 +96,7 @@ int main(int argc, char** argv) {
         it.second.reset();
     }
     SYNCV4L2_Release();
-    //gnss->Release();
+    gnss->Release();
     writer->Close();
     CFG_free(strCfg.c_str());
  

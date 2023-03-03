@@ -1,5 +1,5 @@
 CMAKE_MINIMUM_REQUIRED(VERSION 2.8)
-PROJECT(camera_collect)
+PROJECT(data_collect)
 
 FIND_PACKAGE(CUDA REQUIRED)
 FIND_PACKAGE(Protobuf REQUIRED)
@@ -26,28 +26,20 @@ INCLUDE_DIRECTORIES(${JETSON_ROOT_DIR}/include)
 INCLUDE_DIRECTORIES(${JETSON_ROOT_DIR}/include/libjpeg-8b)
 
 SET(PROTO_DIR ${CMAKE_SOURCE_DIR}/protos)
-SET(PROTO_FILE ${PROTO_DIR}/error_code.proto
-               ${PROTO_DIR}/header.proto
-               ${PROTO_DIR}/sensor_image.proto
-               ${PROTO_DIR}/message.proto)
+FILE(GLOB PROTO_FILE ${PROTO_DIR}/*.proto)
 PROTOBUF_GENERATE_CPP(PROTO_C PROTO_H ${PROTO_FILE})
 INCLUDE_DIRECTORIES(${CMAKE_CURRENT_BINARY_DIR})
 
 
 SET(JETSON_CLASS_DIR ${JETSON_ROOT_DIR}/samples/common/classes)
-SET(SRC_FILE ${PROTO_C}
-             ${SRC_DIR}/camera_collect_worker.cpp
-             ${SRC_DIR}/gnss_collect_worker.cpp
-             ${SRC_DIR}/pb_writer.cpp
-			 ${SRC_DIR}/cfg.cpp
-			 ${SRC_DIR}/rs232.c
-             ${JETSON_CLASS_DIR}/NvLogging.cpp
-             ${JETSON_CLASS_DIR}/NvBuffer.cpp
-             ${JETSON_CLASS_DIR}/NvJpegEncoder.cpp
-             ${JETSON_CLASS_DIR}/NvElement.cpp
-             ${JETSON_CLASS_DIR}/NvElementProfiler.cpp)
+SET(JETSON_CLASS_SRC ${JETSON_CLASS_DIR}/NvLogging.cpp
+                     ${JETSON_CLASS_DIR}/NvBuffer.cpp
+                     ${JETSON_CLASS_DIR}/NvJpegEncoder.cpp
+                     ${JETSON_CLASS_DIR}/NvElement.cpp
+                     ${JETSON_CLASS_DIR}/NvElementProfiler.cpp)
+FILE(GLOB SRC ${SRC_DIR}/*.cpp ${SRC_DIR}/*.c)
 
-ADD_LIBRARY(camera_collect_worker SHARED ${SRC_FILE})
-ADD_EXECUTABLE(camera_collect main.cpp)
-TARGET_LINK_LIBRARIES(camera_collect  camera_collect_worker syncv4l2 yuv nvjpeg protobuf)
+ADD_LIBRARY(data_collect_worker SHARED ${SRC} ${PROTO_C} ${JETSON_CLASS_SRC})
+ADD_EXECUTABLE(data_collect main.cpp)
+TARGET_LINK_LIBRARIES(data_collect  data_collect_worker syncv4l2 yuv nvjpeg protobuf)
 

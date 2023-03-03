@@ -20,6 +20,7 @@ class GNSSCollectWorker {
         std::shared_ptr<std::thread> worker_;
         int gps_count_{0};
         int imu_count_{0};
+        int buf_size_{4096};
         int port_;
         int bdrate_;
         std::shared_ptr<PBWriter> writer_;

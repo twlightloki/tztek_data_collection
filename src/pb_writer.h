@@ -13,6 +13,7 @@ class PBWriter {
         bool Open();
         bool Close();
         bool PushMessage(const std::string &content, const std::string &sensor_name, const uint64_t record_time);
+        std::string& ModuleName() {return module_name_;};
     private:
         bool Consume();
 

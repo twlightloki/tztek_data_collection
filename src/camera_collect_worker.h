@@ -9,8 +9,7 @@
 
 class CameraCollectWorker {
     public:
-        CameraCollectWorker(const std::string &module_name, 
-                            const int channel, const std::string &str_config, 
+        CameraCollectWorker(const int channel, const std::string &str_config, 
                             const std::shared_ptr<PBWriter> &writer);
         ~CameraCollectWorker();
         bool Init();
@@ -24,7 +23,6 @@ class CameraCollectWorker {
         bool Consume();
 
         SYNCV4L2_TCameraPara camera_params_;
-        std::string module_name_;
         int channel_;
         int width_;
         int height_;

@@ -22,9 +22,8 @@ void SyncV4l2CallBack(int nChan,struct timespec stTime,int nWidth,int nHeight,un
     worker->Push(stTime.tv_sec * 1000000000 + stTime.tv_nsec, pData, nWidth, nHeight, nDatalen);
 }
 
-CameraCollectWorker::CameraCollectWorker(const std::string& module_name, const int channel, const std::string &str_config,
+CameraCollectWorker::CameraCollectWorker(const int channel, const std::string &str_config,
         const std::shared_ptr<PBWriter>& writer):
-    module_name_(module_name),
     channel_(channel), writer_(writer) {
         memset(&camera_params_, 0 ,sizeof(SYNCV4L2_TCameraPara));
         std::string tag = "video" + std::to_string(channel_);
@@ -179,7 +178,7 @@ bool CameraCollectWorker::Consume() {
 
             CompressedImage image;
             image.mutable_header()->set_timestamp_sec((double)measurement_time / 1000000);
-            image.mutable_header()->set_module_name(module_name_);
+            image.mutable_header()->set_module_name(writer_->ModuleName());
             image.mutable_header()->set_sequence_num(image_count_++);
             image.mutable_header()->set_camera_timestamp(measurement_time);
 
