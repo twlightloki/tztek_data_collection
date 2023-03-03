@@ -96,13 +96,13 @@ bool CameraCollectWorker::Open() {
 }
 
 
-bool CameraCollectWorker::Push(uint64_t measurement_time,unsigned char *data, int width, int height, int data_len) {
+bool CameraCollectWorker::Push(uint64_t measurement_time, unsigned char *data, int width, int height, int data_len) {
     CHECK(init_);
     CHECK(width == width_ && height == height_ && data_len == width * height * 2 && measurement_time > 0);
     CHECK(data != nullptr);
 
     {
-        //INFO_MSG("WORKER" << channel_ << " Push " << measurement_time);
+//        INFO_MSG("WORKER" << channel_ << " Push " << measurement_time);
         time_point<system_clock> start = system_clock::now();
         std::lock_guard<std::mutex> lock(buf_mutex_);
         CHECK(free_bufs_.size() > 0);
@@ -164,7 +164,6 @@ bool CameraCollectWorker::Consume() {
         }
         if (measurement_time > 0) {
             time_point<system_clock> start = system_clock::now();
-            //INFO_MSG("WORKER" << channel_ << " process frame from " << measurement_time);
             YUYV2To420WithYCExtend(yuyv_buf, buf.planes[0].data, buf.planes[1].data, buf.planes[2].data, width_, height_, stream_);
             cudaStreamSynchronize(stream_);
 
@@ -180,6 +179,7 @@ bool CameraCollectWorker::Consume() {
             encode_ratio_ += (double)jpeg_size / (width_ * height_ * 2);
             consume_count += 1;
             double measurement_time_sec = (double)measurement_time / 1e9;
+            //INFO_MSG("WORKER" << channel_ << " process frame from " << measurement_time_sec);
             double avg_consume_time = consume_time / consume_count;
             if (consume_count % buffer_len_ == 0) {
                 if (1.0 / avg_consume_time < camera_params_.nTriggerFps) {

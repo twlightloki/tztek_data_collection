@@ -105,7 +105,7 @@ bool PBWriter::Consume() {
             float disk_speed = (float)file_size_ / kMBSize / saving_elapsed.count();
             float disk_flow = (float)file_size_ / kMBSize / last_chunk_elapsed.count();
             ouf.close();
-            INFO_MSG("flush file " << current_file_name << "writing disk speed(mb/s): " << disk_speed << ", avg consume data flow(mb/s): " << disk_flow);
+            INFO_MSG("flush file " << current_file_name << "; writing disk speed(mb/s): " << disk_speed << ", avg consume data flow(mb/s): " << disk_flow);
         } else {
             usleep(1000);
         }
