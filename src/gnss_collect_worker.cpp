@@ -140,7 +140,7 @@ bool GNSSCollectWorker::Work() {
                             ERROR_MSG("nema decode fail" << nema_raw_data);
                         }
                         gnss_data.SerializeToString(&content);
-                        CHECK(writer_->PushMessage(content, "pose", measurement_time));
+                        CHECK(writer_->PushMessage(content, "gnss", measurement_time));
                         RawData gnss_raw;
                         gnss_raw.mutable_header()->set_timestamp_sec(measurement_time);
                         gnss_raw.mutable_header()->set_module_name(writer_->ModuleName());
