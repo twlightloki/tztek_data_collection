@@ -60,18 +60,24 @@ void LidarCollectWorker::LaserCallback(const sensor_msgs::PointCloud2::ConstPtr 
     pc.set_width(msg->width);
     pc.set_measurement_time(measurement_time);
     pc.set_is_dense(msg->is_dense);
+    
+    for (int i1 = 0; i1 < msg->height * msg->width; i1 ++) {
+      const uint8_t* data = msg->data.data() + i1 * msg->point_step;
+      float x = reinterpret_cast<const float*>(data)[0];
+      float y = reinterpret_cast<const float*>(data + 4)[0];
+      float z = reinterpret_cast<const float*>(data + 8)[0];
+      if (isnan(x) || isnan(y) || isnan(z)) {
+          continue;
+      }
+      PointXYZIRT *point = pc.add_point();
+      point->set_x(x);
+      point->set_y(y);
+      point->set_z(z);
+      point->set_intensity(reinterpret_cast<const float*>(data + 12)[0]);
+      point->set_ring(reinterpret_cast<const uint16_t*>(data + 16)[0]);
+      point->set_timestamp(reinterpret_cast<const double*>(data + 18)[0]);
  
-    sensor_msgs::PointCloud out_pointcloud;
-	sensor_msgs::convertPointCloud2ToPointCloud(*msg, out_pointcloud);
-	for (int i=0; i<(int)out_pointcloud.points.size(); i++) {
-        float x = out_pointcloud.points[i].x;
-        if(isnan(x)) continue;
-        PointXYZIT *point = pc.add_point();
-        point->set_x(x);
-        point->set_y(out_pointcloud.points[i].y);
-        point->set_z(out_pointcloud.points[i].z);
-        point->set_intensity(out_pointcloud.channels[0].values[i]);
-	}
+    }
 
     std::string content;
     pc.SerializeToString(&content);
