@@ -50,11 +50,10 @@ CameraCollectWorker::~CameraCollectWorker() {
 
 bool CameraCollectWorker::Init() {
     for (int i1 = 0; i1 < buffer_len_; i1 ++) {
-        NvBuffer *buf = new NvBuffer(V4L2_PIX_FMT_YUV420M, width_, height_, i1);
-        buf->allocateMemory();
-        free_bufs_.push(buf);
+        unsigned char* yuyv_buf;
+        cudaMallocHost((void**)&yuyv_buf, width_ * height_ * 2);
+        free_bufs_.push(yuyv_buf);
     }
-    cudaMallocHost((void**)&yuyv_buf_, width_ * height_ * 2);
     std::string enc_name = "jpegenc#" + std::to_string(channel_);
     jpegenc_.reset(NvJPEGEncoder::createJPEGEncoder(enc_name.c_str()));
 
@@ -77,14 +76,11 @@ bool CameraCollectWorker::Release() {
         consumer_->join();
     }
     while (free_bufs_.size() > 0) {
-        delete free_bufs_.front();
+        cudaFree(free_bufs_.front());
         free_bufs_.pop();
     }
     if (jpeg_buf_) {
         delete jpeg_buf_;
-    }
-    if (yuyv_buf_) {
-        cudaFree(yuyv_buf_);
     }
     INFO_MSG("WORKER" << channel_ << " Released, image_count " << image_count_);
     return true;
@@ -110,10 +106,8 @@ bool CameraCollectWorker::Push(uint64_t measurement_time,unsigned char *data, in
         time_point<system_clock> start = system_clock::now();
         std::lock_guard<std::mutex> lock(buf_mutex_);
         CHECK(free_bufs_.size() > 0);
-        NvBuffer* buf = free_bufs_.front();
-        memcpy(yuyv_buf_, data, width_ * height_ * 2);
-        YUYV2To420WithYCExtend(yuyv_buf_, buf->planes[0].data, buf->planes[1].data, buf->planes[2].data, width_, height_, stream_);
-        cudaStreamSynchronize(stream_);
+        unsigned char* yuyv_buf = free_bufs_.front();
+        memcpy(yuyv_buf, data, width_ * height_ * 2);
 //        libyuv::YUY2ToI420(data, 2 * width_,
 //                buf->planes[0].data, width_,
 //                buf->planes[1].data, width_ / 2,
@@ -122,7 +116,7 @@ bool CameraCollectWorker::Push(uint64_t measurement_time,unsigned char *data, in
 //                height_);
         free_bufs_.pop();	
         free_bufs_count_ += free_bufs_.size();
-        using_bufs_.emplace(buf);
+        using_bufs_.emplace(yuyv_buf);
         measurement_times_.emplace(measurement_time);
         time_point<system_clock> end = system_clock::now();
         duration<float> elapsed = end - start;
@@ -149,14 +143,17 @@ bool CameraCollectWorker::Consume() {
     int buf_used_count = 0;
     int consume_count = 0;
     uint64_t consume_time = 0;
+    NvBuffer buf(V4L2_PIX_FMT_YUV420M, width_, height_, 0);
+    buf.allocateMemory();
+
     while (true) {
-        NvBuffer *buf = nullptr;
+        unsigned char *yuyv_buf = nullptr;
         uint64_t measurement_time = 0;
         {
             std::lock_guard<std::mutex> lock(buf_mutex_);
             if (using_bufs_.size() > 0) {
                 buf_used_count += using_bufs_.size();
-                buf = using_bufs_.front();
+                yuyv_buf = using_bufs_.front();
                 measurement_time = measurement_times_.front();
                 using_bufs_.pop();
                 measurement_times_.pop();
@@ -165,9 +162,11 @@ bool CameraCollectWorker::Consume() {
         if (measurement_time > 0) {
             time_point<system_clock> start = system_clock::now();
             //INFO_MSG("WORKER" << channel_ << " process frame from " << measurement_time);
+            YUYV2To420WithYCExtend(yuyv_buf, buf.planes[0].data, buf.planes[1].data, buf.planes[2].data, width_, height_, stream_);
+            cudaStreamSynchronize(stream_);
 
             unsigned long jpeg_size = jpeg_buf_size_;
-            int ret = jpegenc_->encodeFromBuffer(*buf, JCS_YCbCr, &jpeg_buf_, jpeg_size, jpeg_quality_);
+            int ret = jpegenc_->encodeFromBuffer(buf, JCS_YCbCr, &jpeg_buf_, jpeg_size, jpeg_quality_);
             CHECK(ret == 0);
             if (jpeg_size > jpeg_buf_size_) {
                 jpeg_buf_size_ = jpeg_size;
@@ -214,7 +213,7 @@ bool CameraCollectWorker::Consume() {
 #endif
             {
                 std::lock_guard<std::mutex> lock(buf_mutex_);
-                free_bufs_.push(buf);
+                free_bufs_.push(yuyv_buf);
             }
         } else {
             usleep(1000);

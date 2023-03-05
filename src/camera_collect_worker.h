@@ -33,14 +33,13 @@ class CameraCollectWorker {
         std::unique_ptr<std::thread> consumer_;
         std::atomic<bool> stopped_ {false};
         int buffer_len_{0};
-        std::queue<NvBuffer*> free_bufs_;
-        std::queue<NvBuffer*> using_bufs_;
         std::queue<uint64_t> measurement_times_;
+        std::queue<unsigned char*> using_bufs_;
+        std::queue<unsigned char*> free_bufs_;
         std::mutex buf_mutex_;
         int image_count_{0};
         std::chrono::time_point<std::chrono::system_clock> last_;
         unsigned char *jpeg_buf_{nullptr};
-        unsigned char *yuyv_buf_{nullptr};
         unsigned long jpeg_buf_size_{0};
         std::unique_ptr<NvJPEGEncoder> jpegenc_;
 
