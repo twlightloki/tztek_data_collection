@@ -62,17 +62,24 @@ double GPStoUTC(int gps_week, double gps_sec) {
     return gps_sec + weeks - 18;
 }
 
+template<typename T>
+double asensing_data_convert(const char* data, double coefficient) {
+    return double(reinterpret_cast<const T*>(data)[0]) * coefficient;
+}
+
 bool GNSSCollectWorker::Work() {
     INFO_MSG("GNSS worker start");
     CHECK(init_);
     std::string buf;
     buf.resize(buf_size_);
     //std::ofstream ouf("gnss.txt");
+    int skipped_bytes = 0;
+    int read_bytes = 0;
     while (!stopped_) {
         int n = RS232_PollComport(port_, (unsigned char*)(buf.data()), buf_size_);
         if (n > 0) {
+            read_bytes += n;
             //auto ms = duration_cast<nanoseconds>(system_clock::now().time_since_epoch());
-            int skipped_bytes = 0;
 
             buf[n]='\0';
             int idx = 0;
@@ -150,7 +157,7 @@ bool GNSSCollectWorker::Work() {
                         gnss_raw.mutable_header()->set_module_name(writer_->ModuleName());
                         gnss_raw.mutable_header()->set_sequence_num(gps_count_);
                         gnss_raw.set_data(nema_raw_data);
-                        INFO_MSG("nema: "  << uint64_t(measurement_time * 1000) << " " << nema_raw_data);
+                        //INFO_MSG("nema: "  << uint64_t(measurement_time * 1000) << " " << nema_raw_data);
                         //ouf << nema_raw_data << "\n";
                         gnss_raw.SerializeToString(&content);
                         CHECK(writer_->PushMessage(content, "gnss_raw", measurement_time));
@@ -161,7 +168,7 @@ bool GNSSCollectWorker::Work() {
                         skipped_bytes += idx2 - idx;
                         idx = idx2 + 1;
                     }
-                } else if (idx + 73 <= n && buf[idx] == 0xAA && buf[idx + 1] == 0x44 && buf[idx + 2] == 0x12) {
+                } else if (idx + 73 <= n && buf[idx] == 0xBD && buf[idx + 1] == 0xDB && buf[idx + 2] == 0x0B) {
                     Imu imu_data;
                     const char *p_imu = buf.data() + idx + int(buf[idx + 3]);
                     int32_t gps_week = reinterpret_cast<const int32_t*>(p_imu + 0)[0]; 
@@ -178,11 +185,11 @@ bool GNSSCollectWorker::Work() {
                     imu_data.mutable_angular_velocity()->set_y(RawImuGyro(-reinterpret_cast<const int32_t*>(p_imu + 32)[0]));
                     imu_data.mutable_angular_velocity()->set_z(RawImuGyro(reinterpret_cast<const int32_t*>(p_imu + 28)[0]));
 
-                    if (imu_count_ % 123 == 0) {
-                        INFO_MSG("imu: " << uint64_t(measurement_time * 1000) << " : " << 
-                        imu_data.linear_acceleration().x() << " " << imu_data.linear_acceleration().y() << " " << imu_data.linear_acceleration().z() << " : " << 
-                        imu_data.angular_velocity().x() <<  " " << imu_data.angular_velocity().y() << " " << imu_data.angular_velocity().z());
-                    }
+                    //if (imu_count_ % 123 == 0) {
+                    //    INFO_MSG("imu: " << uint64_t(measurement_time * 1000) << " : " << 
+                    //    imu_data.linear_acceleration().x() << " " << imu_data.linear_acceleration().y() << " " << imu_data.linear_acceleration().z() << " : " << 
+                    //    imu_data.angular_velocity().x() <<  " " << imu_data.angular_velocity().y() << " " << imu_data.angular_velocity().z());
+                    //}
                     imu_data.SerializeToString(&content);
                     CHECK(writer_->PushMessage(content, "imu", measurement_time));
 
@@ -196,13 +203,72 @@ bool GNSSCollectWorker::Work() {
 
                     imu_count_ ++;
                     idx += 73;
+                } else if (idx + 62 <= n && buf[idx] == 0xAA && buf[idx + 1] == 0x44 && buf[idx + 2] == 0x12) {
+                    const char *p_gnss = buf.data() + idx;
+                    idx += 62;
+                    uint8_t check_sum = *(p_gnss);
+                    bool check_sum_valid = true;
+                    for (int i1 = 1; i1 < 62; i1 ++) {
+                        check_sum ^= *(p_gnss + idx);
+                        if ((i1 == 56 && check_sum != *(p_gnss + 57)) ||
+                            (i1 == 61 && check_sum != *(p_gnss + 62))) {
+                            check_sum_valid = false;
+                        }
+                    }
+                    if (!check_sum_valid) {
+                        skipped_bytes += 62;
+                    } else {
+                        Gnss gnss_data;
+                        
+                        int32_t gps_week = reinterpret_cast<const int32_t*>(p_gnss + 58)[0]; 
+                        double gps_sec = double(reinterpret_cast<const uint32_t*>(p_gnss + 52)[0]) / 1000;
+                        double measurement_time = GPStoUTC(gps_week, gps_sec);
+
+                        gnss_data.mutable_header()->set_timestamp_sec(measurement_time);
+                        gnss_data.mutable_header()->set_module_name(writer_->ModuleName());
+                        gnss_data.mutable_header()->set_sequence_num(gps_count_);
+                        
+                        gnss_data.mutable_orientation()->set_x(asensing_data_convert<int16_t>(p_gnss + 7, 360.0 / 32768));
+                        gnss_data.mutable_orientation()->set_y(asensing_data_convert<int16_t>(p_gnss + 3, 360.0 / 32768));
+                        gnss_data.mutable_orientation()->set_z(asensing_data_convert<int16_t>(p_gnss + 5, 360.0 / 32768));
+                        gnss_data.mutable_gyro()->set_x(asensing_data_convert<int16_t>(p_gnss + 9, 300.0 / 32768));
+                        gnss_data.mutable_gyro()->set_y(asensing_data_convert<int16_t>(p_gnss + 11, 300.0 / 32768));
+                        gnss_data.mutable_gyro()->set_z(asensing_data_convert<int16_t>(p_gnss + 13, 300.0 / 32768));
+                        gnss_data.mutable_accel()->set_x(asensing_data_convert<int16_t>(p_gnss + 15, 300.0 / 32768));
+                        gnss_data.mutable_accel()->set_y(asensing_data_convert<int16_t>(p_gnss + 17, 300.0 / 32768));
+                        gnss_data.mutable_accel()->set_z(asensing_data_convert<int16_t>(p_gnss + 19, 300.0 / 32768));
+                        gnss_data.mutable_position()->set_lon(asensing_data_convert<int32_t>(p_gnss + 21, 1e-7));
+                        gnss_data.mutable_position()->set_lat(asensing_data_convert<int32_t>(p_gnss + 25, 1e-7));
+                        gnss_data.mutable_position()->set_height(asensing_data_convert<int32_t>(p_gnss + 29, 1e-3));
+                        gnss_data.mutable_linear_velocity()->set_x(asensing_data_convert<int16_t>(p_gnss + 33, 1e2 / 32768));
+                        gnss_data.mutable_linear_velocity()->set_y(asensing_data_convert<int16_t>(p_gnss + 35, 1e2 / 32768));
+                        gnss_data.mutable_linear_velocity()->set_z(asensing_data_convert<int16_t>(p_gnss + 37, 1e2 / 32768));
+                        gnss_data.set_solution_status(reinterpret_cast<const uint8_t*>(p_gnss + 39)[0]);
+                        gnss_data.SerializeToString(&content);
+                        CHECK(writer_->PushMessage(content, "gnss", measurement_time));
+
+                        RawData gnss_raw;
+                        gnss_raw.mutable_header()->set_timestamp_sec(measurement_time);
+                        gnss_raw.mutable_header()->set_module_name(writer_->ModuleName());
+                        gnss_raw.mutable_header()->set_sequence_num(gps_count_);
+                        gnss_raw.set_data(buf.substr(idx - 62, 62));
+                        gnss_raw.SerializeToString(&content);
+                        CHECK(writer_->PushMessage(content, "gnss_raw", measurement_time));
+
+                        gps_count_ ++;
+                    }
+
                 } else {
                     skipped_bytes ++;
                     idx ++;
                 }
             }
-            if (skipped_bytes > 0) {
-                INFO_MSG("n " << n << " skip byte: " << skipped_bytes);
+            if (read_bytes > 1 * kMBSize) {
+                if (skipped_bytes > 0) {
+                    WARN_MSG("GNSS Worker Unrecognized Data: " << double(skipped_bytes) / read_bytes * 100 << "%");
+                }
+                read_bytes = 0;
+                skipped_bytes = 0;
             }
         } else {
             usleep(1000);

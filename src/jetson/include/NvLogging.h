@@ -37,6 +37,7 @@
 #define __NV_LOGGING_H_
 
 #include <iostream>
+#include <iomanip>
 #include <sstream>
 
 /**
@@ -106,10 +107,10 @@ extern const char *log_level_name[];
  */
 #define PRINT_MSG(level, str1) if(level <= log_level) { \
                                   std::ostringstream ostr; \
-                                  ostr << "[" << log_level_name[level] << "] ("  << \
+                                  ostr << std::setiosflags(std::ios::fixed) << std::setiosflags(std::ios::right) << std::setprecision(3) << "[" << log_level_name[level] << "] ("  << \
                                   __FILE__ << ":" __LINE_NUM_STR__ ") " << \
                                   str1 << std::endl; \
-                                  std::cerr << ostr.str(); \
+                                  std::cerr  << ostr.str(); \
                               }
 
 /**

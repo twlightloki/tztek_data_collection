@@ -37,13 +37,23 @@ bool PBWriter::Close() {
     return true;
 };
 
+std::string PBWriter::MessageCount(double elapsed_time_sec) {
+    std::ostringstream buf;
+    for (const auto& entry : message_count_) {
+        double count_per_second = double(entry.second) / elapsed_time_sec;
+        buf << std::setiosflags(std::ios::fixed) << std::setiosflags(std::ios::right) << std::setprecision(3) << "[" << entry.first << "]: " << count_per_second << std::endl;
+    }
+    message_count_.clear();
+    return buf.str();
+}
 
-bool PBWriter::PushMessage(const std::string &content, const std::string &sensor_name, const uint64_t record_time) {
+bool PBWriter::PushMessage(const std::string &content, const std::string &sensor_name, const double record_time_sec) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (chunk_.get() && current_size_ > file_size_) {
-        float size_mb = current_size_ / 1048576;
-        INFO_MSG("flush file count = " << message_count_ << 
-                " size(mb):" << size_mb << " push speed(mb/s)" << size_mb / (record_time - record_time_) * 1000000000);
+        float size_mb = current_size_ / kMBSize;
+        double elapsed_time_sec = record_time_sec - record_time_;
+        INFO_MSG("flush_data from << " << record_time_ << " -> " << record_time_sec <<", flush channel interval :"  << std::endl << MessageCount(elapsed_time_sec) << 
+                "data size(mb):" << size_mb << std::endl << "push speed(mb/s):" << size_mb / elapsed_time_sec);
         chunks_.push(chunk_);
         record_times_.push(record_time_);
         chunk_.reset();
@@ -51,16 +61,16 @@ bool PBWriter::PushMessage(const std::string &content, const std::string &sensor
     if (!chunk_.get()) {
         chunk_.reset(new Chunk());
         current_size_ = 0;
-        record_time_ = record_time;
+        record_time_ = record_time_sec;
     }
 
     {
         SingleMessage *new_message = chunk_->add_messages();
         new_message->set_sensor_name(sensor_name);
-        new_message->set_time(record_time);
+        new_message->set_time(record_time_sec);
         new_message->set_content(content);
         current_size_ += content.size();
-        message_count_ ++;
+        message_count_[sensor_name] ++;
     }
     return true;
 }
@@ -79,11 +89,12 @@ bool PBWriter::Consume() {
                 record_time = record_times_.front();
                 chunks_.pop();
                 record_times_.pop();
-                INFO_MSG(" chunk queue size: " << chunks_.size());
+                INFO_MSG("writing start,  chunks in queue count: " << chunks_.size());
             }
         }
+        std::string current_file_name = module_name_ + "_" + std::to_string(record_time);
         if (record_time > 0) {
-            std::string path = output_dir_ + "/" + module_name_ + "_" + std::to_string(record_time); 
+            std::string path = output_dir_ + "/" + current_file_name; 
             std::ofstream ouf(path, std::ios::binary);
             time_point<system_clock> start = system_clock::now();
             chunk->SerializeToOstream(&ouf);
@@ -91,10 +102,10 @@ bool PBWriter::Consume() {
             duration<float> saving_elapsed = end - start;
             duration<float> last_chunk_elapsed = end - last;
             last = end;
-            float disk_speed = (float)file_size_ / 1048576 / saving_elapsed.count();
-            float disk_flow = (float)file_size_ / 1048576 / last_chunk_elapsed.count();
+            float disk_speed = (float)file_size_ / kMBSize / saving_elapsed.count();
+            float disk_flow = (float)file_size_ / kMBSize / last_chunk_elapsed.count();
             ouf.close();
-            INFO_MSG("flush file estimate disk speed(mb/s): " << disk_speed << ", flow: " << disk_flow);
+            INFO_MSG("flush file " << current_file_name << "writing disk speed(mb/s): " << disk_speed << ", avg consume data flow(mb/s): " << disk_flow);
         } else {
             usleep(1000);
         }

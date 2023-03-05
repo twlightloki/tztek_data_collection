@@ -57,7 +57,7 @@ bool CameraCollectWorker::Init() {
     std::string enc_name = "jpegenc#" + std::to_string(channel_);
     jpegenc_.reset(NvJPEGEncoder::createJPEGEncoder(enc_name.c_str()));
 
-    jpeg_buf_size_ = 10485760; 
+    jpeg_buf_size_ = 10 * kMBSize;
     jpeg_buf_ = new unsigned char[jpeg_buf_size_];
 
     init_ = true;
@@ -124,8 +124,11 @@ bool CameraCollectWorker::Push(uint64_t measurement_time,unsigned char *data, in
         push_count_ += 1;
         if (push_count_ % buffer_len_ == 0) {
             duration<float> clip = end - last_;
-            INFO_MSG("WORKER#" << channel_ << ": fps: " << (float)buffer_len_ / clip.count() << 
-                     " avg push time: " << push_time_ / push_count_ << "ms, avg free bufs: " << free_bufs_count_ / push_count_);
+            double fps = double(buffer_len_) / clip.count();
+            if (fps < camera_params_.nTriggerFps * 0.95) {
+                WARN_MSG("WORKER#" << channel_ << ": fps: " << fps << 
+                         " avg push time: " << push_time_ / push_count_ << "ms, avg free bufs: " << free_bufs_count_ / push_count_);
+            }
             push_count_ = 0;
             push_time_ = 0;
             free_bufs_count_ = 0;
@@ -177,9 +180,12 @@ bool CameraCollectWorker::Consume() {
             encode_ratio_ += (double)jpeg_size / (width_ * height_ * 2);
             consume_count += 1;
             double measurement_time_sec = (double)measurement_time / 1e9;
+            double avg_consume_time = consume_time / consume_count;
             if (consume_count % buffer_len_ == 0) {
-                INFO_MSG(measurement_time / 1000000 <<" WORKER#" <<  channel_ << " avg consume time: " << consume_time / consume_count << "ms, buf_used: " << buf_used_count / consume_count << 
-                        " encode_ratio = " << encode_ratio_ / consume_count);
+                if (1.0 / avg_consume_time < camera_params_.nTriggerFps) {
+                    WARN_MSG(measurement_time / 1000000 <<" WORKER#" <<  channel_ << " avg consume time: " << consume_time / consume_count << "ms, buf_used: " << buf_used_count / consume_count << 
+                            " encode_ratio = " << encode_ratio_ / consume_count);
+                }
                 consume_count = 0;
                 consume_time = 0;
                 buf_used_count = 0;

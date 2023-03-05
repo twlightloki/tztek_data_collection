@@ -11,4 +11,4 @@
         ERROR_MSG(__LINE__ << "  check faild"); \
         return false; }
 
-
+#define kMBSize 1048576
