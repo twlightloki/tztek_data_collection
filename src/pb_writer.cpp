@@ -67,6 +67,7 @@ bool PBWriter::PushMessage(const std::string &content, const std::string &sensor
 
 
 bool PBWriter::Consume() {
+    time_point<system_clock> last = system_clock::now();
     while (true) {
         std::shared_ptr<Chunk> chunk;
         uint64_t record_time = 0;
@@ -92,13 +93,16 @@ bool PBWriter::Consume() {
             google::protobuf::io::FileOutputStream raw_output(fd);
             chunk->SerializeToZeroCopyStream(&raw_output);
             time_point<system_clock> end = system_clock::now();
-            duration<float> elapsed = end - start;
-            float disk_speed = (float)file_size_ / 1048576 / elapsed.count();
+            duration<float> saving_elapsed = end - start;
+            duration<float> last_chunk_elapsed = end - last;
+            last = end;
+            float disk_speed = (float)file_size_ / 1048576 / saving_elapsed.count();
+            float disk_flow = (float)file_size_ / 1048576 / last_chunk_elapsed.count();
             if (close(fd) < 0) {
                 ERROR_MSG(path + " file close faild");
                 return false;
             }
-            INFO_MSG("flush file estimate disk speed(mb/s): " << disk_speed);
+            INFO_MSG("flush file estimate disk speed(mb/s): " << disk_speed << ", flow: " << disk_flow);
         } else {
             usleep(1000);
         }

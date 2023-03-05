@@ -176,8 +176,9 @@ bool CameraCollectWorker::Consume() {
                 encode_ratio_ = 0;
             }
 
+            double measurement_time_sec = (double)measurement_time / 1e9;
             CompressedImage image;
-            image.mutable_header()->set_timestamp_sec((double)measurement_time / 1000000);
+            image.mutable_header()->set_timestamp_sec(measurement_time_sec);
             image.mutable_header()->set_module_name(writer_->ModuleName());
             image.mutable_header()->set_sequence_num(image_count_++);
             image.mutable_header()->set_camera_timestamp(measurement_time);
@@ -185,10 +186,10 @@ bool CameraCollectWorker::Consume() {
             image.set_frame_id(camera_params_.szDevName);
             image.set_format("jpeg");
             image.set_data((void*)jpeg_buf_, jpeg_size); 
-            image.set_measurement_time(measurement_time);
+            image.set_measurement_time(measurement_time_sec);
             std::string content;
             image.SerializeToString(&content);
-            CHECK(writer_->PushMessage(content, "camera", measurement_time));
+            CHECK(writer_->PushMessage(content, "camera", measurement_time_sec));
 //            if (width_ == 1920) {
 //            CHECK(writer_->PushMessage(content, measurement_time));
 //            CHECK(writer_->PushMessage(content, measurement_time));

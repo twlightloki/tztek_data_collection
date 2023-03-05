@@ -52,6 +52,10 @@ message Gnss {
   optional Type type = 9;
   optional uint32 solution_status = 10;
   optional uint32 position_type = 11;
+  
+  optional common.Point3D orientation = 12;
+  optional common.Point3D accel = 13;
+  optional common.Point3D gyro = 14;
 }
 
 // gnss raw data

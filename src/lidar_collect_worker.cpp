@@ -54,14 +54,14 @@ void LidarCollectWorker::LaserCallback(const sensor_msgs::PointCloud2::ConstPtr 
     pc.mutable_header()->set_timestamp_sec(measurement_time);
     pc.mutable_header()->set_module_name(writer_->ModuleName());
     pc.mutable_header()->set_sequence_num(lidar_count_++);
-    pc.mutable_header()->set_camera_timestamp(measurement_time);
+    pc.mutable_header()->set_lidar_timestamp(measurement_time * 1e9);
     pc.set_frame_id(msg->header.frame_id);
     pc.set_height(msg->height);
     pc.set_width(msg->width);
     pc.set_measurement_time(measurement_time);
     pc.set_is_dense(msg->is_dense);
     
-    for (int i1 = 0; i1 < msg->height * msg->width; i1 ++) {
+    for (int i1 = 0; i1 < int(msg->height * msg->width); i1 ++) {
       const uint8_t* data = msg->data.data() + i1 * msg->point_step;
       float x = reinterpret_cast<const float*>(data)[0];
       float y = reinterpret_cast<const float*>(data + 4)[0];
