@@ -3,6 +3,7 @@
 #include "google/protobuf/text_format.h"
 #include "google/protobuf/io/zero_copy_stream_impl.h"
 #include "pb_writer.h"
+#include <fstream>
 
 using namespace common;
 using namespace std::chrono;
@@ -82,26 +83,17 @@ bool PBWriter::Consume() {
             }
         }
         if (record_time > 0) {
-            int fd;
             std::string path = output_dir_ + "/" + module_name_ + "_" + std::to_string(record_time); 
-            fd = open(path.data(), O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
-            if (fd < 0) {
-                ERROR_MSG(path + " file open faild");
-                return false;
-            }
+            std::ofstream ouf(path, std::ios::binary);
             time_point<system_clock> start = system_clock::now();
-            google::protobuf::io::FileOutputStream raw_output(fd);
-            chunk->SerializeToZeroCopyStream(&raw_output);
+            chunk->SerializeToOstream(&ouf);
             time_point<system_clock> end = system_clock::now();
             duration<float> saving_elapsed = end - start;
             duration<float> last_chunk_elapsed = end - last;
             last = end;
             float disk_speed = (float)file_size_ / 1048576 / saving_elapsed.count();
             float disk_flow = (float)file_size_ / 1048576 / last_chunk_elapsed.count();
-            if (close(fd) < 0) {
-                ERROR_MSG(path + " file close faild");
-                return false;
-            }
+            ouf.close();
             INFO_MSG("flush file estimate disk speed(mb/s): " << disk_speed << ", flow: " << disk_flow);
         } else {
             usleep(1000);

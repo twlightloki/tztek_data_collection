@@ -3,15 +3,7 @@
 #include "common.h"
 #include <chrono>
 #include "ros/ros.h"
-#include <sensor_msgs/PointCloud.h>
 #include <sensor_msgs/PointCloud2.h>
-#include <sensor_msgs/point_cloud_conversion.h>
-#include "pcl/point_cloud.h"
-#include <pcl/point_types.h>
-#include <pcl/filters/filter.h>
-#include <pcl_conversions/pcl_conversions.h>
-
-
 
 class LidarCollectWorker {
     public:

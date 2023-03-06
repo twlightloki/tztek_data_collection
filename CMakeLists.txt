@@ -3,17 +3,10 @@ PROJECT(data_collect)
 
 FIND_PACKAGE(CUDA REQUIRED)
 FIND_PACKAGE(Protobuf REQUIRED)
-find_package(PCL REQUIRED)
 find_package(roscpp REQUIRED)
-find_package(catkin REQUIRED COMPONENTS
-   roscpp
-   rospy
-   std_msgs
-   message_generation
-)
 ENABLE_LANGUAGE(CUDA)
 
-
+#CUDA
 INCLUDE_DIRECTORIES(${CUDA_INCLUDE_DIRS})
 SET(CUDA_SEPARABLE_COMPILATION ON)
 SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -g -std=c++14 -Wall")
@@ -22,36 +15,33 @@ LINK_DIRECTORIES(${CUDA_TOOLKIT_ROOT_DIR}/lib64)
 LINK_DIRECTORIES(/usr/lib/aarch64-linux-gnu/tegra/)
 LINK_DIRECTORIES(/usr/lib/aarch64-linux-gnu/)
 
+#Protobuf
 INCLUDE_DIRECTORIES(${PROTOBUF_INCLUDE_DIRS})
 
-SET(SRC_DIR ${CMAKE_SOURCE_DIR}/src)
-INCLUDE_DIRECTORIES(${SRC_DIR})
-LINK_DIRECTORIES(${CMAKE_SOURCE_DIR}/lib/)
-
-SET(JETSON_ROOT_DIR /usr/src/jetson_multimedia_api/)
+#Jetson Multimedia
+SET(JETSON_ROOT_DIR ${CMAKE_SOURCE_DIR}/src/jetson/)
 INCLUDE_DIRECTORIES(${JETSON_ROOT_DIR}/include)
 INCLUDE_DIRECTORIES(${JETSON_ROOT_DIR}/include/libjpeg-8b)
+FILE(GLOB JETSON_CLASS_SRC ${JETSON_ROOT_DIR}/*.cpp)
 
+#Build Protos
 SET(PROTO_DIR ${CMAKE_SOURCE_DIR}/protos)
 FILE(GLOB PROTO_FILE ${PROTO_DIR}/*.proto)
 PROTOBUF_GENERATE_CPP(PROTO_C PROTO_H ${PROTO_FILE})
 INCLUDE_DIRECTORIES(${CMAKE_CURRENT_BINARY_DIR})
 
-INCLUDE_DIRECTORIES(${PCL_INCLUDE_DIRS})
-LINK_DIRECTORIES(${PCL_LIBRARY_DIRS})
+#ROS
 INCLUDE_DIRECTORIES(/opt/ros/noetic/include/)
 LINK_DIRECTORIES(/opt/ros/noetic/lib/)
 
-SET(JETSON_CLASS_DIR ${JETSON_ROOT_DIR}/samples/common/classes)
-SET(JETSON_CLASS_SRC ${JETSON_CLASS_DIR}/NvLogging.cpp
-                     ${JETSON_CLASS_DIR}/NvBuffer.cpp
-                     ${JETSON_CLASS_DIR}/NvJpegEncoder.cpp
-                     ${JETSON_CLASS_DIR}/NvElement.cpp
-                     ${JETSON_CLASS_DIR}/NvElementProfiler.cpp)
-
+#SRC
+SET(SRC_DIR ${CMAKE_SOURCE_DIR}/src)
 FILE(GLOB SRC ${SRC_DIR}/*.cpp ${SRC_DIR}/*.c)
+INCLUDE_DIRECTORIES(${SRC_DIR})
+LINK_DIRECTORIES(${CMAKE_SOURCE_DIR}/lib/)
+
 
 ADD_LIBRARY(data_collect_worker SHARED ${SRC} ${PROTO_C} ${JETSON_CLASS_SRC})
 ADD_EXECUTABLE(data_collect main.cpp)
-TARGET_LINK_LIBRARIES(data_collect  data_collect_worker syncv4l2 yuv nvjpeg protobuf ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+TARGET_LINK_LIBRARIES(data_collect  data_collect_worker syncv4l2 yuv nvjpeg protobuf ${roscpp_LIBRARIES})
 
