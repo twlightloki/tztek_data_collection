@@ -43,5 +43,5 @@ LINK_DIRECTORIES(${CMAKE_SOURCE_DIR}/lib/)
 
 ADD_LIBRARY(data_collect_worker SHARED ${SRC} ${PROTO_C} ${JETSON_CLASS_SRC})
 ADD_EXECUTABLE(data_collect main.cpp)
-TARGET_LINK_LIBRARIES(data_collect  data_collect_worker syncv4l2 yuv nvjpeg protobuf ${roscpp_LIBRARIES})
+TARGET_LINK_LIBRARIES(data_collect  data_collect_worker syncv4l2 yuv nvjpeg protobuf ${roscpp_LIBRARIES} cudart)
 

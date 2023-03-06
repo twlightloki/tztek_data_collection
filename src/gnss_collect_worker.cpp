@@ -129,11 +129,6 @@ bool GNSSCollectWorker::Work() {
                             gnss_data.mutable_accel()->set_x(std::stof(split_result[9]));
                             gnss_data.mutable_accel()->set_y(std::stof(split_result[10]));
                             gnss_data.mutable_accel()->set_z(std::stof(split_result[11]));
-
-
-
-
-
                             gnss_data.mutable_position()->set_lon(std::stof(split_result[13]));
                             gnss_data.mutable_position()->set_lat(std::stof(split_result[12]));
                             gnss_data.mutable_position()->set_height(std::stof(split_result[14]));
@@ -149,7 +144,7 @@ bool GNSSCollectWorker::Work() {
                         gnss_data.mutable_header()->set_sequence_num(gps_count_);
                         gnss_data.set_measurement_time(measurement_time);
                         gnss_data.SerializeToString(&content);
-                        CHECK(writer_->PushMessage(content, "pose", measurement_time));
+                        CHECK(writer_->PushMessage(content, "gnss", measurement_time));
                         RawData gnss_raw;
                         gnss_raw.mutable_header()->set_timestamp_sec(measurement_time);
                         gnss_raw.mutable_header()->set_module_name(writer_->ModuleName());
