@@ -14,14 +14,17 @@ PBWriter::PBWriter(const std::string &module_name, const std::string &sensor_nam
     };
 PBWriter::~PBWriter() {};
 
+bool PBWriter::Open() {
+    consumer_.reset(new std::thread([this](){Consume();}));
+    return true;
+};
+
 bool PBWriter::Close() {
-    if (writer_.get()) {
-        writer_->join();
+    stopped_ = true;
+    if (consumer_.get()) {
+        consumer_->join();
     }
-    if (chunk_.get()) {
-        CHECK(WriteFile(std::move(chunk_), record_time_));
-    }
-    INFO_MSG("closing writer " + module_name_ + "_" + sensor_name_);
+    INFO_MSG("close consumer");
     return true;
 };
 
@@ -29,14 +32,11 @@ bool PBWriter::Close() {
 bool PBWriter::PushMessage(const std::string &content, const uint64_t record_time) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (chunk_.get() && current_size_ > file_size_) {
-        if (writer_.get()) {
-            writer_->join();
-        }
-        INFO_MSG("flush file " + sensor_name_ + " count = " + std::to_string(message_count_) + 
-                " size = " + std::to_string(current_size_));
-        std::cout << "0 " << chunk_.get() << std::endl;
-        writer_.reset(new std::thread([this](){this->WriteFile(std::move(chunk_), record_time_);}));
-        std::cout << "2 " << chunk_.get() << std::endl;
+        INFO_MSG("flush file " << sensor_name_ << " count = " << message_count_ << 
+                " size = "  <<current_size_);
+        chunks_.push(chunk_);
+        record_times_.push(record_time_);
+        chunk_.reset();
     }
     if (!chunk_.get()) {
         chunk_.reset(new Chunk());
@@ -55,22 +55,45 @@ bool PBWriter::PushMessage(const std::string &content, const uint64_t record_tim
 
 
 
-bool PBWriter::WriteFile(const std::unique_ptr<Chunk> chunk, const uint64_t record_time) {
-    std::cout << "1 " <<   chunk.get() << std::endl;
-    int fd;
-    std::string path = output_dir_ + "/" + module_name_ + "_" + sensor_name_ + "_" + std::to_string(record_time); 
-    fd = open(path.data(), O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
-    if (fd < 0) {
-        ERROR_MSG(path + " file open faild");
-        return false;
-    }
-    google::protobuf::io::FileOutputStream raw_output(fd);
-    chunk->SerializeToZeroCopyStream(&raw_output);
-    if (close(fd) < 0) {
-        ERROR_MSG(path + " file close faild");
-        return false;
-    }
-    INFO_MSG("flush file " + sensor_name_ + " finish size: " + std::to_string(chunk->messages_size()));
+bool PBWriter::Consume() {
+    while (true) {
+        std::shared_ptr<Chunk> chunk;
+        uint64_t record_time = 0;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (chunks_.size() > 0) {
+                chunk = chunks_.front();
+                record_time = record_times_.front();
+                chunks_.pop();
+                record_times_.pop();
+            }
+        }
+        if (record_time > 0) {
+            int fd;
+            std::string path = output_dir_ + "/" + module_name_ + "_" + sensor_name_ + "_" + std::to_string(record_time); 
+            fd = open(path.data(), O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+            if (fd < 0) {
+                ERROR_MSG(path + " file open faild");
+                return false;
+            }
+            google::protobuf::io::FileOutputStream raw_output(fd);
+            chunk->SerializeToZeroCopyStream(&raw_output);
+            if (close(fd) < 0) {
+                ERROR_MSG(path + " file close faild");
+                return false;
+            }
+            INFO_MSG("flush file " + sensor_name_ + " finish size: " + std::to_string(chunk->messages_size()));
+        } else {
+            usleep(1000);
+        }
 
+
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (stopped_ && chunks_.size() == 0) {
+                break;
+            }
+        }
+    }
     return true;
 };

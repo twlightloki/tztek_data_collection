@@ -45,6 +45,7 @@ class CameraCollectWorker {
         int push_count_{0};
         int free_bufs_count_{0};
         uint64_t push_time_{0};
+        float encode_ratio_{0};
 
         std::shared_ptr<PBWriter> writer_;
 };

@@ -172,6 +172,7 @@ int main(int argc, char** argv) {
     std::map<int, std::unique_ptr<CameraCollectWorker>> mapJpeg;
 	const int MAX_CAMER_NUM = 8;
     std::shared_ptr<PBWriter> cam_writer(new PBWriter(argv[2], "camera", "./", 100 * 1024 * 1024));
+    cam_writer->Open();
     for (int i = 0; i < MAX_CAMER_NUM; i++)
     {
         int chan = i;

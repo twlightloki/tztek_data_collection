@@ -24,7 +24,7 @@ void SyncV4l2CallBack(int nChan,struct timespec stTime,int nWidth,int nHeight,un
 }
 
 CameraCollectWorker::CameraCollectWorker(const std::string& module_name, const int channel, const std::string &str_config,
-                                        const std::shared_ptr<PBWriter>& writer):
+        const std::shared_ptr<PBWriter>& writer):
     module_name_(module_name),
     channel_(channel), writer_(writer) {
         memset(&camera_params_, 0 ,sizeof(SYNCV4L2_TCameraPara));
@@ -137,7 +137,7 @@ bool CameraCollectWorker::Consume() {
     int buf_used_count = 0;
     int consume_count = 0;
     uint64_t consume_time = 0;
-    while (!stopped_) {
+    while (true) {
         NvBuffer *buf = nullptr;
         uint64_t measurement_time = 0;
         {
@@ -163,12 +163,15 @@ bool CameraCollectWorker::Consume() {
             time_point<system_clock> end = system_clock::now();
             duration<float> elapsed = end - start;
             consume_time += elapsed.count() * 1000;
+            encode_ratio_ += (double)jpeg_size / (width_ * height_ * 2);
             consume_count += 1;
             if (consume_count % 25 == 0) {
-                INFO_MSG("WORKER#" << channel_ << " avg consume time: " << consume_time / consume_count << "ms, buf_used: " << buf_used_count / consume_count);
+                INFO_MSG("WORKER#" << channel_ << " avg consume time: " << consume_time / consume_count << "ms, buf_used: " << buf_used_count / consume_count << 
+                        " encode_ratio = " << encode_ratio_ / consume_count);
                 consume_count = 0;
                 consume_time = 0;
                 buf_used_count = 0;
+                encode_ratio_ = 0;
             }
 
             CompressedImage image;
@@ -184,10 +187,10 @@ bool CameraCollectWorker::Consume() {
             image.SerializeToString(&content);
             CHECK(writer_->PushMessage(content, measurement_time));
 #if (1)
-//            std::string jpeg_name = std::to_string(channel_) + "_" + std::to_string(measurement_time / 1000000) + ".jpeg";
-//            std::ofstream ouf(jpeg_name, std::ios::out | std::ios::binary);
-//            ouf.write(reinterpret_cast<const char*>(jpeg_buf_), jpeg_size);
-//            ouf.close();
+            //            std::string jpeg_name = std::to_string(channel_) + "_" + std::to_string(measurement_time / 1000000) + ".jpeg";
+            //            std::ofstream ouf(jpeg_name, std::ios::out | std::ios::binary);
+            //            ouf.write(reinterpret_cast<const char*>(jpeg_buf_), jpeg_size);
+            //            ouf.close();
 #else
 #endif
             {
@@ -196,6 +199,12 @@ bool CameraCollectWorker::Consume() {
             }
         } else {
             usleep(1000);
+        }
+        {
+            std::lock_guard<std::mutex> lock(buf_mutex_);
+            if (stopped_ && using_bufs_.size() == 0) {
+                break;
+            }
         }
     }
     return true;
