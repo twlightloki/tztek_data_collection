@@ -147,9 +147,9 @@ int main(int argc, char** argv) {
     ouf2.write(reinterpret_cast<const char*>(cuda_data_encode.data()), cuda_data_encode.size());
     ouf2.close();
 	*/
-    if (argc != 2)
+    if (argc != 3)
     {
-        printf("sudo %s  <cfgname>\n", argv[0]);
+        printf("sudo %s  <cfgname> <module_name>\n", argv[0]);
         return -1;
     }
 
@@ -169,8 +169,9 @@ int main(int argc, char** argv) {
     SYNCV4L2_SetEventCallback(syncv4l2EventCallBack, nullptr);
 
     //init camera chan
-    std::map<int, CameraCollectWorker *> mapJpeg;
+    std::map<int, std::unique_ptr<CameraCollectWorker>> mapJpeg;
 	const int MAX_CAMER_NUM = 8;
+    std::shared_ptr<PBWriter> cam_writer(new PBWriter(argv[2], "camera", "./", 100 * 1024 * 1024));
     for (int i = 0; i < MAX_CAMER_NUM; i++)
     {
         int chan = i;
@@ -181,16 +182,15 @@ int main(int argc, char** argv) {
             continue;
         }
 
-        CameraCollectWorker *pJpeg = new (std::nothrow) CameraCollectWorker(chan, strCfg);
-        if (pJpeg == nullptr)
+        mapJpeg[chan].reset(new (std::nothrow) CameraCollectWorker(argv[2], chan, strCfg, cam_writer));
+        if (mapJpeg.at(chan) == nullptr)
         {
             printf("new (std::nothrow)CameraCollectWorker failed,chan=%d\n", chan);
             continue;
         }
 
-        pJpeg->Init();
-        pJpeg->Open();
-        mapJpeg[chan] = pJpeg;
+        mapJpeg.at(chan)->Init();
+        mapJpeg.at(chan)->Open();
     }
 
     //start
@@ -200,11 +200,13 @@ int main(int argc, char** argv) {
 
     //stop
     SYNCV4L2_Stop();
-    for (auto it : mapJpeg)
+    for (auto& it : mapJpeg)
     {
         it.second->Release();
+        it.second.reset();
     }
     SYNCV4L2_Release();
+    cam_writer->Close();
     CFG_free(strCfg.c_str());
  
     return 0;

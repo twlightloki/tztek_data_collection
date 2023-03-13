@@ -8,8 +8,11 @@
 #include "libyuv.h"
 #include "NvLogging.h"
 #include <chrono>
+#include "sensor_image.pb.h"
 
 using namespace std::chrono;
+using namespace common;
+using namespace drivers;
 
 void SyncV4l2CallBack(int nChan,struct timespec stTime,int nWidth,int nHeight,unsigned char *pData,int nDatalen,void *pUserData) {
     CameraCollectWorker *worker= reinterpret_cast<CameraCollectWorker *>(pUserData);
@@ -20,8 +23,10 @@ void SyncV4l2CallBack(int nChan,struct timespec stTime,int nWidth,int nHeight,un
     worker->Push(stTime.tv_sec * 1000000000 + stTime.tv_nsec, pData, nWidth, nHeight, nDatalen);
 }
 
-CameraCollectWorker::CameraCollectWorker(const int &channel, const std::string &str_config):
-    channel_(channel) {
+CameraCollectWorker::CameraCollectWorker(const std::string& module_name, const int channel, const std::string &str_config,
+                                        const std::shared_ptr<PBWriter>& writer):
+    module_name_(module_name),
+    channel_(channel), writer_(writer) {
         memset(&camera_params_, 0 ,sizeof(SYNCV4L2_TCameraPara));
         std::string tag = "video" + std::to_string(channel_);
 
@@ -75,27 +80,27 @@ bool CameraCollectWorker::Release() {
     if (jpeg_buf_) {
         delete jpeg_buf_;
     }
-    INFO_MSG("WORKER" << channel_ << " Released");
+    INFO_MSG("WORKER" << channel_ << " Released, image_count " + std::to_string(image_count_));
     return true;
 }
 
 bool CameraCollectWorker::Open() {
     INFO_MSG("WORKER" << channel_ << " Open");
     CHECK(init_);
-    consumer_.reset(new std::thread(Consume, this));
+    consumer_.reset(new std::thread([this](){this->Consume();}));
     SYNCV4L2_OpenCamera(channel_, &camera_params_);
     SYNCV4L2_SetDataCallback(channel_, SyncV4l2CallBack, this);
     return true;
 }
 
 
-bool CameraCollectWorker::Push(uint64_t mesurement_time,unsigned char *data, int width, int height, int data_len) {
+bool CameraCollectWorker::Push(uint64_t measurement_time,unsigned char *data, int width, int height, int data_len) {
     CHECK(init_);
-    CHECK(width == width_ && height == height_ && data_len == width * height * 2 && mesurement_time > 0);
+    CHECK(width == width_ && height == height_ && data_len == width * height * 2 && measurement_time > 0);
     CHECK(data != nullptr);
 
     {
-        //INFO_MSG("WORKER" << channel_ << " Push " << mesurement_time);
+        //INFO_MSG("WORKER" << channel_ << " Push " << measurement_time);
         time_point<system_clock> start = system_clock::now();
         std::lock_guard<std::mutex> lock(buf_mutex_);
         CHECK(free_bufs_.size() > 0);
@@ -109,7 +114,7 @@ bool CameraCollectWorker::Push(uint64_t mesurement_time,unsigned char *data, int
         free_bufs_.pop();	
         free_bufs_count_ += free_bufs_.size();
         using_bufs_.emplace(buf);
-        mesurement_times_.emplace(mesurement_time);
+        measurement_times_.emplace(measurement_time);
         time_point<system_clock> end = system_clock::now();
         duration<float> elapsed = end - start;
         push_time_ += elapsed.count() * 1000;
@@ -120,18 +125,13 @@ bool CameraCollectWorker::Push(uint64_t mesurement_time,unsigned char *data, int
             push_time_ = 0;
             free_bufs_count_ = 0;
         }
-        //INFO_MSG("WORKER" << channel_ << " Push " << mesurement_time << " end");
+        //INFO_MSG("WORKER" << channel_ << " Push " << measurement_time << " end");
     }
 
     return true;
 }
 
-void CameraCollectWorker::Consume(void* op) {
-    CameraCollectWorker *worker= reinterpret_cast<CameraCollectWorker *>(op);
-    worker->DoConsume();
-}
-
-bool CameraCollectWorker::DoConsume() {
+bool CameraCollectWorker::Consume() {
     INFO_MSG("WORKER" << channel_ << " Consumer start");
     CHECK(init_);
     int buf_used_count = 0;
@@ -139,20 +139,20 @@ bool CameraCollectWorker::DoConsume() {
     uint64_t consume_time = 0;
     while (!stopped_) {
         NvBuffer *buf = nullptr;
-        uint64_t mesurement_time = 0;
+        uint64_t measurement_time = 0;
         {
             std::lock_guard<std::mutex> lock(buf_mutex_);
             if (using_bufs_.size() > 0) {
                 buf_used_count += using_bufs_.size();
                 buf = using_bufs_.front();
-                mesurement_time = mesurement_times_.front();
+                measurement_time = measurement_times_.front();
                 using_bufs_.pop();
-                mesurement_times_.pop();
+                measurement_times_.pop();
             }
         }
-        if (mesurement_time > 0) {
+        if (measurement_time > 0) {
             time_point<system_clock> start = system_clock::now();
-            //INFO_MSG("WORKER" << channel_ << " process frame from " << mesurement_time);
+            //INFO_MSG("WORKER" << channel_ << " process frame from " << measurement_time);
 
             unsigned long jpeg_size = jpeg_buf_size_;
             int ret = jpegenc_->encodeFromBuffer(*buf, JCS_YCbCr, &jpeg_buf_, jpeg_size, jpeg_quality_);
@@ -171,8 +171,20 @@ bool CameraCollectWorker::DoConsume() {
                 buf_used_count = 0;
             }
 
+            CompressedImage image;
+            image.mutable_header()->set_timestamp_sec((double)measurement_time / 1000000);
+            image.mutable_header()->set_module_name(module_name_);
+            image.mutable_header()->set_sequence_num(image_count_++);
+            image.mutable_header()->set_camera_timestamp(measurement_time);
+
+            image.set_format("jpeg");
+            image.set_data((void*)jpeg_buf_, jpeg_size); 
+            image.set_measurement_time(measurement_time);
+            std::string content;
+            image.SerializeToString(&content);
+            CHECK(writer_->PushMessage(content, measurement_time));
 #if (1)
-//            std::string jpeg_name = std::to_string(channel_) + "_" + std::to_string(mesurement_time / 1000000) + ".jpeg";
+//            std::string jpeg_name = std::to_string(channel_) + "_" + std::to_string(measurement_time / 1000000) + ".jpeg";
 //            std::ofstream ouf(jpeg_name, std::ios::out | std::ios::binary);
 //            ouf.write(reinterpret_cast<const char*>(jpeg_buf_), jpeg_size);
 //            ouf.close();
