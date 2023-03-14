@@ -5,6 +5,7 @@
 #include "pb_writer.h"
 
 using namespace common;
+using namespace std::chrono;
 
 PBWriter::PBWriter(const std::string &module_name, const std::string &sensor_name, 
         const std::string &output_dir,
@@ -20,6 +21,13 @@ bool PBWriter::Open() {
 };
 
 bool PBWriter::Close() {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (chunk_->messages_size() > 0) {
+            chunks_.push(chunk_);
+            record_times_.push(record_time_);
+        }
+    }
     stopped_ = true;
     if (consumer_.get()) {
         consumer_->join();
@@ -44,12 +52,14 @@ bool PBWriter::PushMessage(const std::string &content, const uint64_t record_tim
         record_time_ = record_time;
     }
 
-    SingleMessage *new_message = chunk_->add_messages();
-    new_message->set_sensor_name(sensor_name_);
-    new_message->set_time(record_time);
-    new_message->set_content(content);
-    current_size_ += content.size();
-    message_count_ ++;
+    {
+        SingleMessage *new_message = chunk_->add_messages();
+        new_message->set_sensor_name(sensor_name_);
+        new_message->set_time(record_time);
+        new_message->set_content(content);
+        current_size_ += content.size();
+        message_count_ ++;
+    }
     return true;
 }
 
@@ -66,6 +76,7 @@ bool PBWriter::Consume() {
                 record_time = record_times_.front();
                 chunks_.pop();
                 record_times_.pop();
+                INFO_MSG(" chunk queue size: " << chunks_.size());
             }
         }
         if (record_time > 0) {
@@ -76,13 +87,17 @@ bool PBWriter::Consume() {
                 ERROR_MSG(path + " file open faild");
                 return false;
             }
+            time_point<system_clock> start = system_clock::now();
             google::protobuf::io::FileOutputStream raw_output(fd);
             chunk->SerializeToZeroCopyStream(&raw_output);
+            time_point<system_clock> end = system_clock::now();
+            duration<float> elapsed = end - start;
+            float disk_speed = (float)chunk->messages_size() / 1048576 / (elapsed.count() / 1000000);
             if (close(fd) < 0) {
                 ERROR_MSG(path + " file close faild");
                 return false;
             }
-            INFO_MSG("flush file " + sensor_name_ + " finish size: " + std::to_string(chunk->messages_size()));
+            INFO_MSG("flush file " << sensor_name_ << " finish size(b): " << chunk->messages_size() << " disk speed(mb/s): " << disk_speed);
         } else {
             usleep(1000);
         }

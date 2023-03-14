@@ -180,12 +180,18 @@ bool CameraCollectWorker::Consume() {
             image.mutable_header()->set_sequence_num(image_count_++);
             image.mutable_header()->set_camera_timestamp(measurement_time);
 
+            image.set_frame_id(camera_params_.szDevName);
             image.set_format("jpeg");
             image.set_data((void*)jpeg_buf_, jpeg_size); 
             image.set_measurement_time(measurement_time);
             std::string content;
             image.SerializeToString(&content);
             CHECK(writer_->PushMessage(content, measurement_time));
+//            if (width_ == 1920) {
+//            CHECK(writer_->PushMessage(content, measurement_time));
+//            CHECK(writer_->PushMessage(content, measurement_time));
+//            }
+
 #if (1)
             //            std::string jpeg_name = std::to_string(channel_) + "_" + std::to_string(measurement_time / 1000000) + ".jpeg";
             //            std::ofstream ouf(jpeg_name, std::ios::out | std::ios::binary);
