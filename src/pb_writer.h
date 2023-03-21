@@ -4,7 +4,7 @@
 
 class PBWriter {
     public:
-        PBWriter(const std::string &module_name, const std::string &sensor_name, 
+        PBWriter(const std::string &module_name, 
                 const std::string &output_dir = "./", 
                 const uint64_t file_size =  1024 * 1024 * 1024);
         ~PBWriter();
@@ -12,7 +12,7 @@ class PBWriter {
 
         bool Open();
         bool Close();
-        bool PushMessage(const std::string &content, const uint64_t record_time);
+        bool PushMessage(const std::string &content, const std::string &sensor_name, const uint64_t record_time);
     private:
         bool Consume();
 
@@ -22,7 +22,6 @@ class PBWriter {
         std::unique_ptr<std::thread> consumer_;
         std::mutex mutex_;
         std::string module_name_;
-        std::string sensor_name_;
         std::string output_dir_;
         uint64_t file_size_;
         std::atomic<bool> stopped_{false};

@@ -37,8 +37,10 @@ INCLUDE_DIRECTORIES(${CMAKE_CURRENT_BINARY_DIR})
 SET(JETSON_CLASS_DIR ${JETSON_ROOT_DIR}/samples/common/classes)
 SET(SRC_FILE ${PROTO_C}
              ${SRC_DIR}/camera_collect_worker.cpp
+             ${SRC_DIR}/gnss_collect_worker.cpp
              ${SRC_DIR}/pb_writer.cpp
 			 ${SRC_DIR}/cfg.cpp
+			 ${SRC_DIR}/rs232.c
              ${JETSON_CLASS_DIR}/NvLogging.cpp
              ${JETSON_CLASS_DIR}/NvBuffer.cpp
              ${JETSON_CLASS_DIR}/NvJpegEncoder.cpp

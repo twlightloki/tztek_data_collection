@@ -7,10 +7,10 @@
 using namespace common;
 using namespace std::chrono;
 
-PBWriter::PBWriter(const std::string &module_name, const std::string &sensor_name, 
+PBWriter::PBWriter(const std::string &module_name, 
         const std::string &output_dir,
         const uint64_t file_size):
-    module_name_(module_name), sensor_name_(sensor_name),
+    module_name_(module_name), 
     output_dir_(output_dir), file_size_(file_size) {
     };
 PBWriter::~PBWriter() {};
@@ -37,11 +37,12 @@ bool PBWriter::Close() {
 };
 
 
-bool PBWriter::PushMessage(const std::string &content, const uint64_t record_time) {
+bool PBWriter::PushMessage(const std::string &content, const std::string &sensor_name, const uint64_t record_time) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (chunk_.get() && current_size_ > file_size_) {
-        INFO_MSG("flush file " << sensor_name_ << " count = " << message_count_ << 
-                " size = "  <<current_size_);
+        float size_mb = current_size_ / 1048576;
+        INFO_MSG("flush file count = " << message_count_ << 
+                " size(mb):" << size_mb << " push speed(mb/s)" << size_mb / (record_time - record_time_) * 1000000000);
         chunks_.push(chunk_);
         record_times_.push(record_time_);
         chunk_.reset();
@@ -54,7 +55,7 @@ bool PBWriter::PushMessage(const std::string &content, const uint64_t record_tim
 
     {
         SingleMessage *new_message = chunk_->add_messages();
-        new_message->set_sensor_name(sensor_name_);
+        new_message->set_sensor_name(sensor_name);
         new_message->set_time(record_time);
         new_message->set_content(content);
         current_size_ += content.size();
@@ -81,7 +82,7 @@ bool PBWriter::Consume() {
         }
         if (record_time > 0) {
             int fd;
-            std::string path = output_dir_ + "/" + module_name_ + "_" + sensor_name_ + "_" + std::to_string(record_time); 
+            std::string path = output_dir_ + "/" + module_name_ + "_" + std::to_string(record_time); 
             fd = open(path.data(), O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
             if (fd < 0) {
                 ERROR_MSG(path + " file open faild");
@@ -92,12 +93,12 @@ bool PBWriter::Consume() {
             chunk->SerializeToZeroCopyStream(&raw_output);
             time_point<system_clock> end = system_clock::now();
             duration<float> elapsed = end - start;
-            float disk_speed = (float)chunk->messages_size() / 1048576 / (elapsed.count() / 1000000);
+            float disk_speed = (float)file_size_ / 1048576 / elapsed.count();
             if (close(fd) < 0) {
                 ERROR_MSG(path + " file close faild");
                 return false;
             }
-            INFO_MSG("flush file " << sensor_name_ << " finish size(b): " << chunk->messages_size() << " disk speed(mb/s): " << disk_speed);
+            INFO_MSG("flush file estimate disk speed(mb/s): " << disk_speed);
         } else {
             usleep(1000);
         }

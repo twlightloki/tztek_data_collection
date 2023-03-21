@@ -6,6 +6,7 @@
 //#include "nvjpeg.h"
 //#include "kernels.h"
 #include "camera_collect_worker.h"
+#include "gnss_collect_worker.h"
 #include <map>
 #include <stdio.h>
 #include <string.h>
@@ -57,8 +58,8 @@ int main(int argc, char** argv) {
     //init camera chan
     std::map<int, std::unique_ptr<CameraCollectWorker>> mapJpeg;
 	const int MAX_CAMER_NUM = 8;
-    std::shared_ptr<PBWriter> cam_writer(new PBWriter(argv[2], "camera", argv[3], (uint64_t)2000 * 1024 * 1024));
-    cam_writer->Open();
+    std::shared_ptr<PBWriter> writer(new PBWriter(argv[2], argv[3], (uint64_t)2000 * 1024 * 1024));
+    writer->Open();
     for (int i = 0; i < MAX_CAMER_NUM; i++)
     {
         int chan = i;
@@ -69,7 +70,7 @@ int main(int argc, char** argv) {
             continue;
         }
 
-        mapJpeg[chan].reset(new (std::nothrow) CameraCollectWorker(argv[2], chan, strCfg, cam_writer));
+        mapJpeg[chan].reset(new (std::nothrow) CameraCollectWorker(argv[2], chan, strCfg, writer));
         if (mapJpeg.at(chan) == nullptr)
         {
             printf("new (std::nothrow)CameraCollectWorker failed,chan=%d\n", chan);
@@ -79,6 +80,9 @@ int main(int argc, char** argv) {
         mapJpeg.at(chan)->Init();
         mapJpeg.at(chan)->Open();
     }
+    std::unique_ptr<GNSSCollectWorker> gnss(new (std::nothrow)GNSSCollectWorker(42, 115200, writer));
+    gnss->Init();
+    //gnss->Open();
 
     //start
     SYNCV4L2_Start();
@@ -93,7 +97,8 @@ int main(int argc, char** argv) {
         it.second.reset();
     }
     SYNCV4L2_Release();
-    cam_writer->Close();
+    //gnss->Release();
+    writer->Close();
     CFG_free(strCfg.c_str());
  
     return 0;

@@ -3,6 +3,7 @@
 #include "NvJpegEncoder.h"
 #include "pb_writer.h"
 #include "common.h"
+#include <chrono>
 
 
 
@@ -28,6 +29,7 @@ class CameraCollectWorker {
         int width_;
         int height_;
         int jpeg_quality_;
+        int interval_{5};
         bool init_ = false;
         std::unique_ptr<std::thread> consumer_;
         std::atomic<bool> stopped_ {false};
@@ -37,7 +39,7 @@ class CameraCollectWorker {
         std::queue<uint64_t> measurement_times_;
         std::mutex buf_mutex_;
         int image_count_{0};
-
+        std::chrono::time_point<std::chrono::system_clock> last_;
         unsigned char *jpeg_buf_{nullptr};
         unsigned long jpeg_buf_size_{0};
         std::unique_ptr<NvJPEGEncoder> jpegenc_;

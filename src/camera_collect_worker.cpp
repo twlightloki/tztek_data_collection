@@ -7,7 +7,6 @@
 #include "camera_collect_worker.h"
 #include "libyuv.h"
 #include "NvLogging.h"
-#include <chrono>
 #include "sensor_image.pb.h"
 
 using namespace std::chrono;
@@ -37,7 +36,7 @@ CameraCollectWorker::CameraCollectWorker(const std::string& module_name, const i
         snprintf(camera_params_.szDevName,sizeof(camera_params_.szDevName),"/dev/video%d", channel);
 
         camera_params_.nTriggerFps = CFG_get_section_value_int(str_config.c_str(),tag.c_str(),"fps",0);
-        buffer_len_ = camera_params_.nTriggerFps;
+        buffer_len_ = camera_params_.nTriggerFps * interval_;
         camera_params_.nTriggerPluseWidth = CFG_get_section_value_int(str_config.c_str(),tag.c_str(),"plusewidth",3);
         camera_params_.nTriggerPluseOffset = CFG_get_section_value_int(str_config.c_str(),tag.c_str(),"offset",0);
         camera_params_.nRender = 0;
@@ -62,6 +61,7 @@ bool CameraCollectWorker::Init() {
 
     init_ = true;
     INFO_MSG("WORKER" << channel_ << " Init completed");
+    last_ = system_clock::now();
     return true;
 }
 
@@ -80,7 +80,7 @@ bool CameraCollectWorker::Release() {
     if (jpeg_buf_) {
         delete jpeg_buf_;
     }
-    INFO_MSG("WORKER" << channel_ << " Released, image_count " + std::to_string(image_count_));
+    INFO_MSG("WORKER" << channel_ << " Released, image_count " << image_count_);
     return true;
 }
 
@@ -119,11 +119,14 @@ bool CameraCollectWorker::Push(uint64_t measurement_time,unsigned char *data, in
         duration<float> elapsed = end - start;
         push_time_ += elapsed.count() * 1000;
         push_count_ += 1;
-        if (push_count_ % 25 == 0) {
-            INFO_MSG("WORKER#" << channel_ << " avg push time: " << push_time_ / push_count_ << "ms, avg free bufs: " << free_bufs_count_ / push_count_);
+        if (push_count_ % buffer_len_ == 0) {
+            duration<float> clip = end - last_;
+            INFO_MSG("WORKER#" << channel_ << ": fps: " << (float)buffer_len_ / clip.count() << 
+                     " avg push time: " << push_time_ / push_count_ << "ms, avg free bufs: " << free_bufs_count_ / push_count_);
             push_count_ = 0;
             push_time_ = 0;
             free_bufs_count_ = 0;
+            last_ = end;
         }
         //INFO_MSG("WORKER" << channel_ << " Push " << measurement_time << " end");
     }
@@ -165,7 +168,7 @@ bool CameraCollectWorker::Consume() {
             consume_time += elapsed.count() * 1000;
             encode_ratio_ += (double)jpeg_size / (width_ * height_ * 2);
             consume_count += 1;
-            if (consume_count % 25 == 0) {
+            if (consume_count % buffer_len_ == 0) {
                 INFO_MSG("WORKER#" << channel_ << " avg consume time: " << consume_time / consume_count << "ms, buf_used: " << buf_used_count / consume_count << 
                         " encode_ratio = " << encode_ratio_ / consume_count);
                 consume_count = 0;
@@ -186,7 +189,7 @@ bool CameraCollectWorker::Consume() {
             image.set_measurement_time(measurement_time);
             std::string content;
             image.SerializeToString(&content);
-            CHECK(writer_->PushMessage(content, measurement_time));
+            CHECK(writer_->PushMessage(content, "camera", measurement_time));
 //            if (width_ == 1920) {
 //            CHECK(writer_->PushMessage(content, measurement_time));
 //            CHECK(writer_->PushMessage(content, measurement_time));
