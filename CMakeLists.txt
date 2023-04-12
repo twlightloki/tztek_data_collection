@@ -40,8 +40,16 @@ FILE(GLOB SRC ${SRC_DIR}/*.cpp ${SRC_DIR}/*.c ${SRC_DIR}/*.cu)
 INCLUDE_DIRECTORIES(${SRC_DIR})
 LINK_DIRECTORIES(${CMAKE_SOURCE_DIR}/lib/)
 
-
+#EXEC
 ADD_LIBRARY(data_collect_worker SHARED ${SRC} ${PROTO_C} ${JETSON_CLASS_SRC})
+TARGET_LINK_LIBRARIES(data_collect_worker  syncv4l2 nvjpeg protobuf ${roscpp_LIBRARIES} cudart zmq)
 ADD_EXECUTABLE(data_collect main.cpp)
-TARGET_LINK_LIBRARIES(data_collect  data_collect_worker syncv4l2 yuv nvjpeg protobuf ${roscpp_LIBRARIES} cudart zmq)
+TARGET_LINK_LIBRARIES(data_collect data_collect_worker)
 
+#TOOL
+SET(TOOL_DIR ${CMAKE_SOURCE_DIR}/tools)
+ADD_EXECUTABLE(yuyv_2_jpeg ${TOOL_DIR}/yuyv_2_jpeg.cpp)
+TARGET_LINK_LIBRARIES(yuyv_2_jpeg data_collect_worker)
+
+ADD_EXECUTABLE(network_sub ${TOOL_DIR}/network_sub.cpp)
+TARGET_LINK_LIBRARIES(network_sub data_collect_worker)
