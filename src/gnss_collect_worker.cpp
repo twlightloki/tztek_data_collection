@@ -57,7 +57,7 @@ double RawImuGyro(double raw) {
     return raw / 160849.543863 * 100;
 }
 
-double GPStoUTC(int gps_week, double gps_sec) {
+double GPStoUTC(uint32_t gps_week, double gps_sec) {
     double weeks = gps_week * 604800 + 315936000;
     return gps_sec + weeks - 18;
 }
@@ -204,9 +204,9 @@ bool GNSSCollectWorker::Work() {
 
                     imu_count_ ++;
                     idx += 73;
-                } else if (idx + 62 <= n && buf[idx] == 0xBD && buf[idx + 1] == 0xDB && buf[idx + 2] == 0x0B) {
+                } else if (idx + 63 <= n && buf[idx] == 0xBD && buf[idx + 1] == 0xDB && buf[idx + 2] == 0x0B) {
                     const char *p_gnss = buf.data() + idx;
-                    idx += 62;
+                    idx += 63;
                     uint8_t check_sum = *(p_gnss);
                     bool check_sum_valid = true;
                     //for (int i1 = 1; i1 < 62; i1 ++) {
@@ -218,13 +218,13 @@ bool GNSSCollectWorker::Work() {
                     //    }
                     //}
                     if (!check_sum_valid) {
-                        skipped_bytes += 62;
+                        skipped_bytes += 63;
                         INFO_MSG("check sum fail");
                     } else {
                         Gnss gnss_data;
                         
-                        int32_t gps_week = reinterpret_cast<const uint32_t*>(p_gnss + 58)[0]; 
-                        double gps_sec = double(reinterpret_cast<const uint32_t*>(p_gnss + 52)[0]) * 2.5e-4 / 1000;
+                        uint32_t gps_week = asensing_data_convert<uint32_t>(p_gnss + 58, 1); 
+                        double gps_sec = asensing_data_convert<uint32_t>(p_gnss + 52, 2.5e-4 /1000);
                         double measurement_time = GPStoUTC(gps_week, gps_sec);
 
                         gnss_data.mutable_header()->set_timestamp_sec(measurement_time);
@@ -254,7 +254,7 @@ bool GNSSCollectWorker::Work() {
                         gnss_raw.mutable_header()->set_timestamp_sec(measurement_time);
                         gnss_raw.mutable_header()->set_module_name(writer_->ModuleName());
                         gnss_raw.mutable_header()->set_sequence_num(gps_count_);
-                        gnss_raw.set_data(buf.substr(idx - 62, 62));
+                        gnss_raw.set_data(buf.substr(idx - 63, 63));
                         gnss_raw.SerializeToString(&content);
                         CHECK(writer_->PushMessage(content, "gnss_raw", measurement_time));
 
