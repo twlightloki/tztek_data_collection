@@ -29,6 +29,7 @@ class PBWriter {
         int VisualHeight() const { return 540; };
         int VisualWidth() const {return 960; };
         int VisualQuality() const {return 80; };
+        int VisualStep() const {return 2; };
     private:
         bool Consume();
         std::string MessageCount(double elapsed_time_sec) const;

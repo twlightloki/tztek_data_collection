@@ -130,6 +130,22 @@ bool CameraCollectWorker::Push(uint64_t measurement_time, unsigned char *data, i
     return true;
 }
 
+class SimpleTimeCounter {
+public:
+    SimpleTimeCounter(double *counter) {
+        counter_ = counter;
+        start_ = system_clock::now();
+    }
+    ~SimpleTimeCounter() {
+        time_point<system_clock> end = system_clock::now();
+        duration<float> elapsed = end - start_;
+        *counter_ += elapsed.count() * 1000;
+    }
+private:
+    double *counter_;
+    time_point<system_clock> start_;
+};
+
 bool CameraCollectWorker::Consume() {
     INFO_MSG("WORKER" << channel_ << " Consumer start");
     CHECK(init_);
@@ -160,6 +176,13 @@ bool CameraCollectWorker::Consume() {
     cudaStream_t stream; 
     cudaStreamCreate(&stream);
 
+
+    double dump_resize = 0;
+    double visual_resize = 0;
+    double dump_encode = 0;
+    double visual_encode = 0;
+    int dump_count = 0;
+    int visual_count = 0;
     while (true) {
         unsigned char *yuyv_buf = nullptr;
         uint64_t measurement_time = 0;
@@ -176,16 +199,19 @@ bool CameraCollectWorker::Consume() {
         if (measurement_time > 0) {
             time_point<system_clock> start = system_clock::now();
             if (writer_->AvailDump()) {
+                SimpleTimeCounter _(&dump_resize);
                 YUYV2To420WithYCExtend(yuyv_buf, buf.planes[0].data, buf.planes[1].data, buf.planes[2].data, 
                                        width_, height_, width_, height_, stream);
+                cudaStreamSynchronize(stream);
             }
 
-            if (writer_->AvailVisual()) {
+            if (writer_->AvailVisual() && image_count_ % writer_->VisualStep() == 0) {
+                SimpleTimeCounter _(&visual_resize);
                 YUYV2To420WithYCExtend(yuyv_buf, scaled_buf.planes[0].data, scaled_buf.planes[1].data, scaled_buf.planes[2].data, 
                                        writer_->VisualWidth(), writer_->VisualHeight(), width_, height_, stream);
-            }
+                cudaStreamSynchronize(stream);
+             }
  
-            cudaStreamSynchronize(stream);
             {
                 std::lock_guard<std::mutex> lock(buf_mutex_);
                 free_bufs_.push(yuyv_buf);
@@ -218,14 +244,18 @@ bool CameraCollectWorker::Consume() {
             };
 
             if (writer_->AvailDump()) {
+                SimpleTimeCounter _(&dump_encode);
                 std::string content;
                 CHECK(EncodeToContent(buf, jpegenc, content, jpeg_quality_));
                 CHECK(writer_->PushMessage(content, "camera", measurement_time_sec, PBWriter::ONLY_LOCAL));
+                dump_count ++;
             }
-            if (writer_->AvailVisual()) {
+            if (writer_->AvailVisual() && image_count_ % writer_->VisualStep() == 0) {
+                SimpleTimeCounter _(&visual_encode);
                 std::string scaled_content;
                 CHECK(EncodeToContent(scaled_buf, scaled_jpegenc, scaled_content, writer_->VisualQuality()));
                 CHECK(writer_->PushMessage(scaled_content, "camera_visual", measurement_time_sec, PBWriter::ONLY_VISUAL));
+                visual_count ++;
             }
             image_count_ ++;
 
@@ -245,6 +275,8 @@ bool CameraCollectWorker::Consume() {
                 if (1000.0 / avg_consume_time < camera_params_.nTriggerFps) {
                     WARN_MSG(measurement_time / 1000000 <<" WORKER#" <<  channel_ << " avg consume time: " << consume_time / consume_count << "ms, buf_used: " << buf_used_count / consume_count << 
                             " encode_ratio = " << encode_ratio / consume_count);
+                    WARN_MSG("[dump_resize/dump_encode/visual_resize/visual_encode]: " << dump_resize / dump_count << " / " << dump_encode / dump_count << " / " <<
+                    visual_resize / visual_count << " / " << visual_encode / visual_count);
                 }
                 consume_count = 0;
                 consume_time = 0;

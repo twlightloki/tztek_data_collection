@@ -26,49 +26,52 @@ __global__ void yuyv_to_420_with_extend_and_resize_kernel(const unsigned char *s
         const int width, const int height, const int in_width, const int in_height, const int count) {
     float width_scale = float(in_width) / width;
     float height_scale = float(in_height) / height;
-    for(int i1 = threadIdx.x; i1 < count / 2; i1 += CUDA_THREAD_NUM) {
-        int pos_y = i1 * 2 / width;
-        int pos_x = (i1 * 2) % width;
-        float y_y = (pos_y + 0.5) * height_scale - 0.5;
-        float y_x0 = (pos_x + 0.5 ) * width_scale - 0.5;
-        float y_x1 = (pos_x + 1 + 0.5 ) * width_scale - 0.5;
+    for(int i1 = threadIdx.x; i1 < count / 4; i1 += CUDA_THREAD_NUM) {
+        int pos_y = i1 / (width / 2) * 2;
+        int pos_x = i1 % (width / 2) * 2;
+        float y_y0 = (pos_y + 0.5) * height_scale - 0.5;
+        float y_x0 = (pos_x + 0.5) * width_scale - 0.5;
+        float y_y1 = (pos_y + 1.5) * height_scale - 0.5;
+        float y_x1 = (pos_x + 1.5) * width_scale - 0.5;
 
-
-        unsigned char* dst_y0 = plane_y + i1 * 2;
-        unsigned char* dst_y1 = plane_y + i1 * 2 + 1;
-        *dst_y0 = ycbcr(bilinear_functor(src, in_width * 2, in_height, 2, 1, y_x0, y_y), 16, 219);
-        *dst_y1 = ycbcr(bilinear_functor(src, in_width * 2, in_height, 2, 1, y_x1, y_y), 16, 219);
-        if (pos_y % 2  == 0) {
-            float uv_y = (pos_y + 1.0) * height_scale - 0.5;
-            float uv_x = (pos_x + 1.0) * width_scale - 0.5;
-            int uv_offset = (pos_y / 2) * (width / 2) + pos_x / 2;
-            unsigned char* dst_u = plane_u + uv_offset;
-            unsigned char* dst_v = plane_v + uv_offset;
-            *dst_u = ycbcr(bilinear_functor(src + 1, in_width * 2, in_height, 4, 2, uv_x, uv_y), 16, 224);
-            *dst_v = ycbcr(bilinear_functor(src + 3, in_width * 2, in_height, 4, 2, uv_x, uv_y), 16, 224);
-        }
+        unsigned char* dst_y0 = plane_y + pos_y * width + pos_x;
+        unsigned char* dst_y1 = dst_y0 + 1;
+        unsigned char* dst_y2 = dst_y0 + width;
+        unsigned char* dst_y3 = dst_y2 + 1;
+        *dst_y0 = ycbcr(bilinear_functor(src, in_width * 2, in_height, 2, 1, y_x0, y_y0), 16, 219);
+        *dst_y1 = ycbcr(bilinear_functor(src, in_width * 2, in_height, 2, 1, y_x1, y_y0), 16, 219);
+        *dst_y2 = ycbcr(bilinear_functor(src, in_width * 2, in_height, 2, 1, y_x0, y_y1), 16, 219);
+        *dst_y3 = ycbcr(bilinear_functor(src, in_width * 2, in_height, 2, 1, y_x1, y_y1), 16, 219);
+         
+        float uv_y = (pos_y + 1.0) * height_scale - 0.5;
+        float uv_x = (pos_x + 1.0) * width_scale - 0.5;
+        unsigned char* dst_u = plane_u + i1;
+        unsigned char* dst_v = plane_v + i1;
+        *dst_u = ycbcr(bilinear_functor(src + 1, in_width * 2, in_height, 4, 2, uv_x, uv_y), 16, 224);
+        *dst_v = ycbcr(bilinear_functor(src + 3, in_width * 2, in_height, 4, 2, uv_x, uv_y), 16, 224);
     }
 };
 
 __global__ void yuyv_to_420_with_extend_kernel(const unsigned char *src, unsigned char *plane_y, unsigned char *plane_u, unsigned char *plane_v, 
         const int width, const int height, const int count) {
-    for(int i1 = threadIdx.x; i1 < count / 2; i1 += CUDA_THREAD_NUM) {
-        int pos_y = i1 * 2 / width;
-        int pos_x = (i1 * 2) % width;
+    for(int i1 = threadIdx.x; i1 < count / 4; i1 += CUDA_THREAD_NUM) {
+        int pos_y = i1 / (width / 2) * 2;
+        int pos_x = i1 % (width / 2) * 2;
+        const unsigned char* src_y = src + (pos_y * width + pos_x) * 2;
 
-        unsigned char* dst_y0 = plane_y + i1 * 2;
-        unsigned char* dst_y1 = plane_y + i1 * 2 + 1;
-        *dst_y0 = ycbcr((src + i1 * 4)[0], 16, 219);
-        *dst_y1 = ycbcr((src + i1 * 4 + 2)[0], 16, 219);
-        if (pos_y % 2  == 0) {
-            float uv_y = (pos_y + 0.5);
-            float uv_x = (pos_x + 0.5);
-            int uv_offset = (pos_y / 2) * (width / 2) + pos_x / 2;
-            unsigned char* dst_u = plane_u + uv_offset;
-            unsigned char* dst_v = plane_v + uv_offset;
-            *dst_u = ycbcr(bilinear_functor(src + 1, width * 2, height, 4, 2, uv_x, uv_y), 16, 224);
-            *dst_v = ycbcr(bilinear_functor(src + 3, width * 2, height, 4, 2, uv_x, uv_y), 16, 224);
-        }
+        unsigned char* dst_y0 = plane_y + pos_y * width + pos_x;
+        unsigned char* dst_y1 = dst_y0 + 1;
+        unsigned char* dst_y2 = dst_y0 + width;
+        unsigned char* dst_y3 = dst_y2 + 1;
+        *dst_y0 = ycbcr((src_y)[0], 16, 219);
+        *dst_y1 = ycbcr((src_y + 2)[0], 16, 219);
+        *dst_y2 = ycbcr((src_y + width * 2)[0], 16, 219);
+        *dst_y3 = ycbcr((src_y + width * 2 + 2)[0], 16, 219);
+        
+        unsigned char* dst_u = plane_u + i1;
+        unsigned char* dst_v = plane_v + i1;
+        *dst_u = ycbcr((src_y + 1)[0], 16, 224);
+        *dst_v = ycbcr((src_y + 3)[0], 16, 224);
     }
 };
 

@@ -40,7 +40,7 @@ int main(int argc, char** argv) {
     socket.connect(std::string("tcp://localhost:") + argv[1]);
     std::cout << zmq_strerror(zmq_errno()) << std::endl;
     char filter[] = "byd66";
-    socket.setsockopt(ZMQ_SUBSCRIBE, filter, 5);
+    socket.set(zmq::sockopt::subscribe, filter);
     std::cout << zmq_strerror(zmq_errno()) << std::endl;
     std::string sensor_name = argv[2];
     while (true) {

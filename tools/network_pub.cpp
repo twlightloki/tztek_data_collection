@@ -15,7 +15,7 @@ int main(int argc, char** argv) {
         std::string msg = "byd66 hello world";
         zmq::message_t message(msg.size());
         memcpy(message.data(), msg.data(), msg.size());
-        socket.send(message);
+        socket.send(message, zmq::send_flags::dontwait);
         usleep(100000);
     }
 

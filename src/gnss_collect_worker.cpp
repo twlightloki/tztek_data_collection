@@ -209,14 +209,14 @@ bool GNSSCollectWorker::Work() {
                     idx += 63;
                     uint8_t check_sum = *(p_gnss);
                     bool check_sum_valid = true;
-                    //for (int i1 = 1; i1 < 62; i1 ++) {
-                    //    check_sum ^= *(p_gnss + i1);
-                    //    if ((i1 == 56 && check_sum != *(p_gnss + 57)) ||
-                    //        (i1 == 61 && check_sum != *(p_gnss + 62))) {
-                    //        INFO_MSG(i1 << " " << int(check_sum) << " " << int(*(p_gnss + 57)) << " " << int(*(p_gnss + 62)));
+                    for (int i1 = 1; i1 < 62; i1 ++) {
+                        check_sum ^= *(p_gnss + i1);
+                        if ((i1 == 56 && check_sum != *(p_gnss + 57)) ||
+                            (i1 == 61 && check_sum != *(p_gnss + 62))) {
+                            INFO_MSG(i1 << " " << int(check_sum) << " " << int(*(p_gnss + 57)) << " " << int(*(p_gnss + 62)));
                     //        check_sum_valid = false;
-                    //    }
-                    //}
+                        }
+                    }
                     if (!check_sum_valid) {
                         skipped_bytes += 63;
                         INFO_MSG("check sum fail");
