@@ -45,7 +45,7 @@ int main(int argc, char** argv) {
     std::string sensor_name = argv[2];
     while (true) {
         zmq::message_t request;
-        socket.recv(request);
+        zmq::recv_result_t rtn = socket.recv(request);
         common::SingleMessage message;
         message.ParseFromString(request.to_string().substr(6, request.size() - 6));
         if (message.sensor_name() == sensor_name) {

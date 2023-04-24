@@ -1,56 +1,73 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include "google/protobuf/text_format.h"
-#include "pb_writer.h"
+#include "data_consumer.h"
 #include <fstream>
 
 using namespace common;
 using namespace std::chrono;
 
-PBWriter::PBWriter(const std::string &module_name, 
-        const std::string &output_dir,
-        const uint64_t file_size,
-        const std::string &visual_port):
-    module_name_(module_name), 
-    output_dir_(output_dir), file_size_(file_size),
-    visual_port_(visual_port) {
+DataWriter::DataWriter(const std::string &module_name):
+    module_name_(module_name) {
     };
-PBWriter::~PBWriter() {};
+DataWriter::~DataWriter() {};
 
-bool PBWriter::Open() {
-    if (visual_port_ != "") {
-      try {
-          INFO_MSG("visual port: " << visual_port_);
-          //more io threads?
-          zmq_context_.reset(new zmq::context_t(1));
-          zmq_socket_.reset(new zmq::socket_t(*zmq_context_, zmq::socket_type::pub));
-          zmq_socket_->bind("tcp://*:" + visual_port_);
-      } catch (const std::exception &e){
-          ERROR_MSG("zmq init fail: " << e.what());
-          return false;
-      }
+bool DataWriter::OpenVisualize(const std::string &visual_port) {
+    std::lock_guard<std::shared_mutex> _(consumer_state_mutex_);
+    try {
+        INFO_MSG("visual port: " << visual_port);
+        //more io threads?
+        zmq_context_.reset(new zmq::context_t(1));
+        zmq_socket_.reset(new zmq::socket_t(*zmq_context_, zmq::socket_type::pub));
+        zmq_socket_->bind("tcp://*:" + visual_port);
+    } catch (const std::exception &e){
+        ERROR_MSG("zmq init fail: " << e.what());
+        return false;
     }
-    consumer_.reset(new std::thread([this](){Consume();}));
+    visualize_opened_ = true;
     return true;
 };
 
-bool PBWriter::Close() {
+bool DataWriter::OpenDump(const std::string &output_dir,  const uint64_t file_size) {
+    std::lock_guard<std::shared_mutex> _(consumer_state_mutex_);
+    output_dir_ = output_dir;
+    INFO_MSG("dump output dir: " << output_dir);
+    file_size_ = file_size;
+    chunk_.reset();
+    consumer_.reset(new std::thread([this](){DumpConsume();}));
+    dump_opened_ = true;
+    return true;
+};
+
+
+bool DataWriter::CloseVisualize() {
+    std::lock_guard<std::shared_mutex> _(consumer_state_mutex_);
+    CHECK(visualize_opened_);
+    INFO_MSG("close visual");
+    visualize_opened_ = false;
+    return true;
+};
+
+bool DataWriter::CloseDump() {
+    std::lock_guard<std::shared_mutex> _(consumer_state_mutex_);
+    CHECK(dump_opened_);
+    INFO_MSG("close dump");
+    dump_opened_ = false;
     {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::mutex> lock(dump_mutex_);
         if (chunk_.get() && chunk_->messages_size() > 0) {
             chunks_.push(chunk_);
             record_times_.push(record_time_);
         }
     }
-    stopped_ = true;
     if (consumer_.get()) {
         consumer_->join();
     }
-    INFO_MSG("close consumer, visual_count: " << visual_count_);
     return true;
 };
 
-std::string PBWriter::MessageCount(double elapsed_time_sec) const {
+
+std::string DataWriter::MessageCount(double elapsed_time_sec) const {
     std::ostringstream buf;
     for (const auto& entry : message_count_) {
         double count_per_second = double(entry.second) / elapsed_time_sec;
@@ -69,15 +86,16 @@ std::string DateStr(const double time_sec) {
     return rtn.substr(0, rtn.size() - 1);
 }
 
-bool PBWriter::PushMessage(const std::string &content, const std::string &sensor_name, const double record_time_sec,
+bool DataWriter::PushMessage(const std::string &content, const std::string &sensor_name, const double record_time_sec,
                            const PushType push_type) {
+    std::shared_lock<std::shared_mutex> _(consumer_state_mutex_);
     bool need_dump = push_type != ONLY_VISUAL && AvailDump();
     bool need_visual = push_type != ONLY_LOCAL && AvailVisual();
     if (need_dump || need_visual) {
         std::string message_content;
         SingleMessage *new_message = nullptr;
         if (need_dump) {
-            std::lock_guard<std::mutex> lock(mutex_);
+            std::lock_guard<std::mutex> lock(dump_mutex_);
             if (chunk_.get() && current_size_ > file_size_) {
                 float size_mb = current_size_ / kMBSize;
                 double elapsed_time_sec = record_time_sec - record_time_;
@@ -96,7 +114,6 @@ bool PBWriter::PushMessage(const std::string &content, const std::string &sensor
                 record_time_ = record_time_sec;
                 INFO_MSG("new file start from: " << sensor_name << " " << record_time_sec);
             }
-
             new_message = chunk_->add_messages();
             current_size_ += content.size();
             message_count_[sensor_name] ++;
@@ -114,7 +131,7 @@ bool PBWriter::PushMessage(const std::string &content, const std::string &sensor
             message_content = "byd66 " + message_content;
             zmq::const_buffer buf(message_content.data(), message_content.size());
             try {
-                std::lock_guard<std::mutex> lock(zmq_mutex_);
+                std::lock_guard<std::mutex> lock(visual_mutex_);
                 zmq_socket_->send(buf);
             } catch (const std::exception &e){
                 ERROR_MSG("zmq send message of " << sensor_name << " fail: " << e.what());
@@ -122,7 +139,6 @@ bool PBWriter::PushMessage(const std::string &content, const std::string &sensor
             if (!need_dump) {
                 delete new_message;
             }
-            visual_count_ ++;
         }
     }
     return true;
@@ -130,14 +146,14 @@ bool PBWriter::PushMessage(const std::string &content, const std::string &sensor
 
 
 
-bool PBWriter::Consume() {
+bool DataWriter::DumpConsume() {
     time_point<system_clock> last = system_clock::now();
     while (true) {
         std::shared_ptr<Chunk> chunk;
         int waiting_chunks = 0;
         uint64_t record_time = 0;
         {
-            std::lock_guard<std::mutex> lock(mutex_);
+            std::lock_guard<std::mutex> lock(dump_mutex_);
             if (chunks_.size() > 0) {
                 chunk = chunks_.front();
                 record_time = record_times_.front();
@@ -168,8 +184,8 @@ bool PBWriter::Consume() {
 
 
         {
-            std::lock_guard<std::mutex> lock(mutex_);
-            if (stopped_ && chunks_.size() == 0) {
+            std::lock_guard<std::mutex> lock(dump_mutex_);
+            if (!dump_opened_ && chunks_.size() == 0) {
                 break;
             }
         }

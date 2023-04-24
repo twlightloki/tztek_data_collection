@@ -1,5 +1,5 @@
 #pragma once
-#include "pb_writer.h"
+#include "data_consumer.h"
 #include "common.h"
 #include <chrono>
 
@@ -7,7 +7,7 @@
 
 class GNSSCollectWorker {
     public:
-        GNSSCollectWorker(const int port, const int bdrate, const std::shared_ptr<PBWriter> &writer);
+        GNSSCollectWorker(const int port, const int bdrate, const std::shared_ptr<DataWriter> &writer);
         ~GNSSCollectWorker();
         bool Release();
         bool Open();
@@ -23,6 +23,6 @@ class GNSSCollectWorker {
         int buf_size_{4096};
         int port_;
         int bdrate_;
-        std::shared_ptr<PBWriter> writer_;
+        std::shared_ptr<DataWriter> writer_;
 };
 

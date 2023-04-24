@@ -1,7 +1,7 @@
 #pragma once
 #include "syncv4l2.h"
 #include "NvJpegEncoder.h"
-#include "pb_writer.h"
+#include "data_consumer.h"
 #include "common.h"
 #include <chrono>
 
@@ -10,7 +10,7 @@
 class CameraCollectWorker {
     public:
         CameraCollectWorker(const int channel, const std::string &str_config, 
-                            const std::shared_ptr<PBWriter> &writer);
+                            const std::shared_ptr<DataWriter> &writer);
         ~CameraCollectWorker();
         bool Init();
         bool Release();
@@ -43,6 +43,6 @@ class CameraCollectWorker {
         int free_bufs_count_{0};
         uint64_t push_time_{0};
 
-        std::shared_ptr<PBWriter> writer_;
+        std::shared_ptr<DataWriter> writer_;
 };
 

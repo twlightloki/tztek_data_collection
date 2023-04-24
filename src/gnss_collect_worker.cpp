@@ -13,7 +13,7 @@
 using namespace std::chrono;
 using namespace drivers::gnss;
 
-GNSSCollectWorker::GNSSCollectWorker(const int port, const int bdrate, const std::shared_ptr<PBWriter>& writer):
+GNSSCollectWorker::GNSSCollectWorker(const int port, const int bdrate, const std::shared_ptr<DataWriter>& writer):
     port_(port), bdrate_(bdrate),
     writer_(writer) {
     }

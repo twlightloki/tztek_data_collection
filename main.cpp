@@ -54,6 +54,7 @@ int main(int argc, char** argv) {
     CFG_get_section_value(strCfg.c_str(), "common", "trigger_dev_name", stuSyncPara.szDevname, sizeof(stuSyncPara.szDevname));
     stuSyncPara.nReset = CFG_get_section_value_int(strCfg.c_str(), "common", "reset", 0);
     int visual_port = CFG_get_section_value_int(strCfg.c_str(), "common", "port", 5556);
+    uint64_t file_size = CFG_get_section_value_int(strCfg.c_str(), "common", "file_size", 2000 * kMBSize);
     CFG_get_section_value(strCfg.c_str(), "common", "trigger_dev_name", stuSyncPara.szDevname, sizeof(stuSyncPara.szDevname));
     SYNCV4L2_Init(&stuSyncPara);
     SYNCV4L2_SetEventCallback(syncv4l2EventCallBack, nullptr);
@@ -62,9 +63,7 @@ int main(int argc, char** argv) {
     std::map<int, std::unique_ptr<CameraCollectWorker>> mapJpeg;
 	const int MAX_CAMER_NUM = 8;
     std::string output_dir = argc > 3 ? argv[3] : "";
-    uint64_t file_size = argc > 3 ? 2000 * kMBSize : 0;
-    std::shared_ptr<PBWriter> writer(new PBWriter(argv[2], output_dir, file_size , visual_port > 0 ? std::to_string(visual_port) : ""));
-    writer->Open();
+    std::shared_ptr<DataWriter> writer(new DataWriter(argv[2]));
     for (int i = 0; i < MAX_CAMER_NUM; i++)
     {
         int chan = i;
@@ -84,6 +83,10 @@ int main(int argc, char** argv) {
 
         CHECK(mapJpeg.at(chan)->Init());
         CHECK(mapJpeg.at(chan)->Open());
+    }
+    CHECK(writer->OpenVisualize(std::to_string(visual_port)));
+    if (output_dir != "") {
+        CHECK(writer->OpenDump(output_dir, file_size));
     }
     std::unique_ptr<GNSSCollectWorker> gnss(new (std::nothrow)GNSSCollectWorker(42, 230400, writer));
     CHECK(gnss->Init());
@@ -109,9 +112,12 @@ int main(int argc, char** argv) {
         CHECK(it.second->Release());
         it.second.reset();
     }
+    CHECK(writer->CloseVisualize());
+    if (output_dir != "") {
+        CHECK(writer->CloseDump());
+    }
     SYNCV4L2_Release();
     CHECK(gnss->Release());
-    CHECK(writer->Close());
     CFG_free(strCfg.c_str());
  
     return 0;

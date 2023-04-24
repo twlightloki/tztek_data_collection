@@ -10,4 +10,4 @@ if [ $(expr length "${test_dir}") == 0  ]; then
 else
     log_dir=${target_dir}
 fi
-sudo LD_LIBRARY_PATH=/opt/ros/noetic/lib/:$LD_LIBRARY_PATH ./build/data_collect /home/nvidia/tztek_data_collection/config_${module_name}.ini "${module_name}" ${target_dir} 2>&1 | tee ${log_dir}/log.$(date +%s)
+sudo LD_LIBRARY_PATH=/opt/ros/noetic/lib/:$LD_LIBRARY_PATH ./build/data_collect /home/nvidia/tztek_data_collection/configs/config_${module_name}.ini "${module_name}" ${target_dir} 2>&1 | tee ${log_dir}/log.$(date +%s)

@@ -9,7 +9,7 @@
 using namespace std::chrono;
 using namespace drivers;
 
-LidarCollectWorker::LidarCollectWorker(const std::string& channel, const std::shared_ptr<PBWriter>& writer):
+LidarCollectWorker::LidarCollectWorker(const std::string& channel, const std::shared_ptr<DataWriter>& writer):
     channel_(channel),
     writer_(writer) {
     }

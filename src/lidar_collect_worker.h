@@ -1,5 +1,5 @@
 #pragma once
-#include "pb_writer.h"
+#include "data_consumer.h"
 #include "common.h"
 #include <chrono>
 #include "ros/ros.h"
@@ -7,7 +7,7 @@
 
 class LidarCollectWorker {
     public:
-        LidarCollectWorker(const std::string& channel, const std::shared_ptr<PBWriter> &writer);
+        LidarCollectWorker(const std::string& channel, const std::shared_ptr<DataWriter> &writer);
         ~LidarCollectWorker();
         bool Release();
         bool Open();
@@ -23,6 +23,6 @@ class LidarCollectWorker {
         bool init_{false};
         int lidar_count_{0};
         std::shared_ptr<std::thread> ros_thread_;
-        std::shared_ptr<PBWriter> writer_;
+        std::shared_ptr<DataWriter> writer_;
 };
 

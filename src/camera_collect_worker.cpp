@@ -25,7 +25,7 @@ void SyncV4l2CallBack(int nChan,struct timespec stTime,int nWidth,int nHeight,un
 }
 
 CameraCollectWorker::CameraCollectWorker(const int channel, const std::string &str_config,
-        const std::shared_ptr<PBWriter>& writer):
+        const std::shared_ptr<DataWriter>& writer):
     channel_(channel), writer_(writer) {
         memset(&camera_params_, 0 ,sizeof(SYNCV4L2_TCameraPara));
         std::string tag = "video" + std::to_string(channel_);
@@ -154,11 +154,8 @@ bool CameraCollectWorker::Consume() {
 
     std::string enc_name = "jpegenc#" + std::to_string(channel_);
     jpegenc.reset(NvJPEGEncoder::createJPEGEncoder(enc_name.c_str()));
-    if (writer_->AvailVisual()) {
-        std::string scaled_enc_name = enc_name + "_scaled";
-        scaled_jpegenc.reset(NvJPEGEncoder::createJPEGEncoder(scaled_enc_name.c_str()));
- //       scaled_jpegenc->setScaledEncodeParams(writer_->VisualWidth(), writer_->VisualHeight());
-    }
+    std::string scaled_enc_name = enc_name + "_scaled";
+    scaled_jpegenc.reset(NvJPEGEncoder::createJPEGEncoder(scaled_enc_name.c_str()));
     size_t jpeg_buf_size = 10 * kMBSize;
     unsigned char *jpeg_buf = new unsigned char[jpeg_buf_size];
 
@@ -226,6 +223,7 @@ bool CameraCollectWorker::Consume() {
                                        const std::unique_ptr<NvJPEGEncoder> &encoder, std::string& content,
                                        const int quality) {
                 uint64_t jpeg_size = jpeg_buf_size;
+                CHECK(encoder.get());
                 int ret = encoder->encodeFromBuffer(buf, JCS_YCbCr, &jpeg_buf, jpeg_size, quality);
                 CHECK(ret == 0);
                 if (jpeg_size > jpeg_buf_size) {
@@ -250,14 +248,14 @@ bool CameraCollectWorker::Consume() {
                 SimpleTimeCounter _(&dump_encode);
                 std::string content;
                 CHECK(EncodeToContent(buf, jpegenc, content, jpeg_quality_));
-                CHECK(writer_->PushMessage(content, "camera", measurement_time_sec, PBWriter::ONLY_LOCAL));
+                CHECK(writer_->PushMessage(content, "camera", measurement_time_sec, DataWriter::ONLY_LOCAL));
                 dump_count ++;
             }
             if (writer_->AvailVisual() && image_count_ % writer_->VisualStep() == 0) {
                 SimpleTimeCounter _(&visual_encode);
                 std::string scaled_content;
                 CHECK(EncodeToContent(scaled_buf, scaled_jpegenc, scaled_content, writer_->VisualQuality()));
-                CHECK(writer_->PushMessage(scaled_content, "camera_visual", measurement_time_sec, PBWriter::ONLY_VISUAL));
+                CHECK(writer_->PushMessage(scaled_content, "camera_visual", measurement_time_sec, DataWriter::ONLY_VISUAL));
                 visual_count ++;
             }
             image_count_ ++;

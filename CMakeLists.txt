@@ -9,7 +9,7 @@ ENABLE_LANGUAGE(CUDA)
 #CUDA
 INCLUDE_DIRECTORIES(${CUDA_INCLUDE_DIRS})
 SET(CUDA_SEPARABLE_COMPILATION ON)
-SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -g -std=c++14 -Wall")
+SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -g -std=c++17 -Wall")
 SET(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -arch=compute_87 -code=sm_87")
 LINK_DIRECTORIES(${CUDA_TOOLKIT_ROOT_DIR}/lib64)
 LINK_DIRECTORIES(/usr/lib/aarch64-linux-gnu/tegra/)
@@ -56,3 +56,6 @@ TARGET_LINK_LIBRARIES(network_sub data_collect_worker)
 
 ADD_EXECUTABLE(network_pub ${TOOL_DIR}/network_pub.cpp)
 TARGET_LINK_LIBRARIES(network_pub data_collect_worker)
+
+ADD_EXECUTABLE(gnss_extract ${TOOL_DIR}/gnss_extract.cpp)
+TARGET_LINK_LIBRARIES(gnss_extract data_collect_worker)
